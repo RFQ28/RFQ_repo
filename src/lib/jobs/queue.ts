@@ -119,10 +119,38 @@ export async function runJobs(
       result.succeeded += 1
     } catch (thrown) {
       const message = thrown instanceof Error ? thrown.message : String(thrown)
-      const { data: failed } = await db.rpc('fail_job' as never, {
+      const { data: failed, error: failError } = await db.rpc('fail_job' as never, {
         job_id: job.id,
         message,
       } as never)
+
+      if (failError) {
+        // The function whose whole purpose is to make sure a failure is
+        // recorded has itself failed. Ignoring this is how a job sits in
+        // 'running' forever — never retried, never dead-lettered, never
+        // reported — which is exactly the silent loss the queue exists to
+        // prevent. Put the job back by hand and say so loudly.
+        console.error('fail_job failed; releasing the job by hand', {
+          jobId: job.id,
+          kind: job.kind,
+          originalError: message,
+          failError,
+        })
+
+        await db
+          .from('jobs')
+          .update({
+            status: job.attempts >= job.max_attempts ? 'dead' : 'queued',
+            run_after: new Date(Date.now() + 60_000).toISOString(),
+            last_error: `${message} (and fail_job errored: ${failError.message})`,
+            locked_by: null,
+            locked_at: null,
+          })
+          .eq('id', job.id)
+
+        result.failed += 1
+        continue
+      }
 
       const status = (failed as unknown as JobRow | null)?.status
       if (status === 'dead') {

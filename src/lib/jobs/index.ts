@@ -1,7 +1,9 @@
 import 'server-only'
 
 import type { JobKind, JobHandler } from './queue'
+import { ingestEmail } from './handlers/ingest-email'
 import { parseRfq } from './handlers/parse-rfq'
+import { renewSubscriptions } from './handlers/renew-subscriptions'
 import { matchRfq } from './handlers/match-rfq'
 
 /**
@@ -11,7 +13,9 @@ import { matchRfq } from './handlers/match-rfq'
  * retried, so this table and the JobKind union have to stay in step.
  */
 export const handlers: Partial<Record<JobKind, JobHandler>> = {
+  ingest_email: ingestEmail,
   parse_rfq: parseRfq,
+  renew_graph_subscription: renewSubscriptions,
   match_rfq: matchRfq,
 }
 

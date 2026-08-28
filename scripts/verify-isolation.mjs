@@ -106,7 +106,7 @@ try {
 
   // --- real rows in both ----------------------------------------------------
 
-  const { data: productA, error: productAError } = await admin
+  const { error: productAError } = await admin
     .from('products')
     .insert({ tenant_id: tenantA.id, sku: 'A-SECRET-1', description: 'Tenant A only widget', list_price: 100 })
     .select('id')

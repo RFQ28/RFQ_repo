@@ -21,6 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <NavLink href="/rfqs">RFQs</NavLink>
             <NavLink href="/quotes">Quotes</NavLink>
             {isAdmin && <NavLink href="/settings/catalogue">Catalogue</NavLink>}
+            {isAdmin && <NavLink href="/settings/mailbox">Mailbox</NavLink>}
           </nav>
 
           <div className="ml-auto flex items-center gap-3 text-sm">

@@ -15,7 +15,8 @@
     "verify:isolation": "node scripts/verify-isolation.mjs",
     "verify:types": "node scripts/check-type-drift.mjs",
     "verify": "npm run verify:schema && npm run verify:types && npm run verify:isolation",
-    "test:integration": "vitest run --config vitest.integration.mts"
+    "test:integration": "vitest run --config vitest.integration.mts",
+    "verify:intake": "node scripts/verify-intake.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

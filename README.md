@@ -9,14 +9,20 @@ The product spec is [docs/PRD.md](docs/PRD.md). Section numbers in code comments
 
 ## Where the build is
 
-Nothing has been run against a database yet — the migrations are written but not
-applied, so treat everything below as "written and type-checked, not yet
-exercised against Postgres".
+The schema is applied and verified against a live Supabase project. `npm run
+verify` checks it end to end: every table reachable, RLS refusing an anonymous
+caller, the RPCs exposed and correctly locked, the hand-written types matching
+the live columns, and — the part that matters — two real tenants proving that
+neither can reach the other.
+
+**One migration is outstanding: `0008_fix_fail_job.sql`.** Apply it. It fixes a
+queue defect that left every failed job stuck in `running` forever, never
+retried and never reported.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Multi-tenant schema, RLS, auth, onboarding, catalogue + price ingestion | **Built** |
-| 2 | Graph mailbox, forwarding fallback, classification, dedup, revisions | **Partial** — classifier, queue and storage schema built; Graph connection, webhook and dedup not written |
+| 2 | Graph mailbox, forwarding fallback, classification, dedup, revisions | **Built** — OAuth, subscription, webhook, renewal with catch-up sweep, dedup, revision detection, customer identification. Needs an Entra app registration to run |
 | 3 | Document parsing, line extraction, matching, embeddings | **Partial** — text and spreadsheet extraction, matching and confidence built; PDF, OCR and Word not; embeddings need a provider |
 | 4 | Pricing engine, UOM conversion, stock check, substitutions | **Built** |
 | 5 | Review screen | **Built** |
@@ -91,17 +97,29 @@ enforced twice, independently:
 ## Commands
 
 ```bash
-npm run dev         # next dev
-npm run build       # production build
-npm test            # vitest
-npm run typecheck   # tsc --noEmit
-npm run lint        # eslint
+npm run dev              # next dev
+npm run build            # production build
+npm test                 # unit tests, no network
+npm run test:integration # the draft pipeline against the real database
+npm run typecheck        # tsc --noEmit
+npm run lint             # eslint
+
+npm run verify           # schema, type drift, and tenant isolation
+npm run verify:intake    # webhook and worker edges (needs `npm run dev` running)
 ```
 
 ## Known gaps
 
-- **Nothing has been run against a real database.** The migrations and the
-  queries against them are unexercised until a Postgres exists to apply them to.
+- **Microsoft Graph needs an Entra app registration.** Set `MS_CLIENT_ID`,
+  `MS_CLIENT_SECRET` and `MS_REDIRECT_URI`; the app registration needs the
+  delegated `Mail.Read` and `offline_access` scopes and a redirect URI matching
+  `MS_REDIRECT_URI`. Until then `/settings/mailbox` says so rather than failing
+  obscurely.
+- **Classification needs `ANTHROPIC_API_KEY`.** Without it every email is
+  surfaced to a rep as a possible RFQ rather than being triaged — deliberately,
+  since silently binning a distributor's inbox is the worse failure.
+- **The forwarding fallback has no inbound provider.** The address is issued and
+  stored, but nothing receives mail at it yet; `/api/inbound` is not written.
 - **Semantic matching needs an embedding provider.** Anthropic does not offer an
   embeddings endpoint, so `cataloguePorts` takes an `embed` function as an
   injected port and simply skips vector search when none is supplied. Matching
