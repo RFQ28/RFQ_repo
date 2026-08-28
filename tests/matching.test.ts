@@ -217,3 +217,66 @@ describe('matchLine', () => {
     expect(result.reasoning).toMatch(/SKU EMT-12-SS matches exactly/)
   })
 })
+
+describe('description-only matching', () => {
+  // These numbers are the ones the live database actually returns for these
+  // strings, measured against pg_trgm rather than guessed.
+  it('recognises a correct match that trigram alone scores low', () => {
+    const result = matchLine(
+      { rawText: '500ft of 12/2 MC cable', description: '12/2 MC cable', partNumber: null, manufacturer: null },
+      [candidate({
+        productId: 'p1', sku: 'MC-12-2-250',
+        description: '12/2 MC cable with ground, 250ft roll',
+        source: 'trigram', rawScore: 0.389,
+      })],
+    )
+
+    // A longer catalogue description drags trigram similarity down; the match
+    // is still real, so it must reach the rep as a candidate rather than as
+    // "nothing matched".
+    expect(result.productId).toBe('p1')
+    expect(result.band).not.toBe('no_match')
+    expect(result.reasoning).toMatch(/Specification matches: conductors 12\/2/)
+  })
+
+  it('still separates the right size from the wrong one', () => {
+    const result = matchLine(
+      { rawText: '25 ea 1/2in EMT set screw connector', description: '1/2in EMT set screw connector', partNumber: null, manufacturer: null },
+      [
+        candidate({ productId: 'right', sku: 'EMT-12-SS', description: '1/2 EMT set screw connector, steel', source: 'trigram', rawScore: 0.743 }),
+        candidate({ productId: 'wrong', sku: 'EMT-34-SS', description: '3/4 EMT set screw connector, steel', source: 'trigram', rawScore: 0.605 }),
+      ],
+    )
+
+    expect(result.productId).toBe('right')
+    expect(result.flagReasons).not.toContain('ambiguous')
+  })
+
+  it('keeps a correction ahead of an exact part number even so', () => {
+    const result = matchLine(
+      { rawText: 'x', description: '1/2in EMT connector', partNumber: 'ABC123', manufacturer: null },
+      [
+        candidate({ productId: 'p-mpn', sku: 'B', description: '1/2 EMT connector', manufacturerPartNumber: 'ABC123', source: 'mpn' }),
+        candidate({ productId: 'p-corr', sku: 'A', description: '1/2 EMT connector steel', source: 'correction' }),
+      ],
+    )
+    expect(result.productId).toBe('p-corr')
+  })
+})
+
+describe('no_match still offers what it found', () => {
+  it('does not drop the best candidate on the floor', () => {
+    const result = matchLine(
+      { rawText: 'blivet flange model ZZ', description: 'blivet flange model ZZ', partNumber: null, manufacturer: null },
+      [
+        candidate({ productId: 'p1', sku: 'A', description: 'flange gasket', source: 'trigram', rawScore: 0.2 }),
+        candidate({ productId: 'p2', sku: 'B', description: 'pipe flange', source: 'trigram', rawScore: 0.15 }),
+      ],
+    )
+
+    expect(result.band).toBe('no_match')
+    expect(result.productId).toBeNull()
+    // Nothing was good enough to quote, but the rep still gets the leads.
+    expect(result.alternatives.map((a) => a.product_id)).toEqual(['p1', 'p2'])
+  })
+})

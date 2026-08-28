@@ -159,6 +159,15 @@ export function extractSpecs(text: string): Specs {
   }
 }
 
+const SPEC_LABELS: [keyof Specs, string][] = [
+  ['sizes', 'size'],
+  ['wire', 'conductors'],
+  ['gauge', 'gauge'],
+  ['amps', 'amps'],
+  ['volts', 'volts'],
+  ['poles', 'poles'],
+]
+
 /**
  * Specs the line states that the candidate contradicts.
  *
@@ -171,22 +180,37 @@ export function specConflicts(line: string, candidate: string): string[] {
   const b = extractSpecs(candidate)
   const conflicts: string[] = []
 
-  const compare = (key: keyof Specs, label: string) => {
-    if (a[key].size === 0 || b[key].size === 0) return
+  for (const [key, label] of SPEC_LABELS) {
+    if (a[key].size === 0 || b[key].size === 0) continue
     const shared = [...a[key]].some((value) => b[key].has(value))
     if (!shared) {
       conflicts.push(`${label} ${[...a[key]].join('/')} vs ${[...b[key]].join('/')}`)
     }
   }
 
-  compare('sizes', 'size')
-  compare('wire', 'conductors')
-  compare('gauge', 'gauge')
-  compare('amps', 'amps')
-  compare('volts', 'volts')
-  compare('poles', 'poles')
-
   return conflicts
+}
+
+/**
+ * Spec categories where the line and the candidate state the same value.
+ *
+ * The mirror of `specConflicts`, and it earns its place: "12/2" appearing in
+ * both is far stronger evidence than the same weight of ordinary word overlap,
+ * because it is the part of the description a contractor never gets wrong.
+ * Rewarding only the absence of conflict would leave that evidence on the floor.
+ */
+export function specAgreements(line: string, candidate: string): string[] {
+  const a = extractSpecs(line)
+  const b = extractSpecs(candidate)
+  const agreements: string[] = []
+
+  for (const [key, label] of SPEC_LABELS) {
+    if (a[key].size === 0 || b[key].size === 0) continue
+    const shared = [...a[key]].filter((value) => b[key].has(value))
+    if (shared.length > 0) agreements.push(`${label} ${shared.join('/')}`)
+  }
+
+  return agreements
 }
 
 // ---------------------------------------------------------------------------
@@ -247,27 +271,42 @@ export function scoreCandidate(line: MatchLine, candidate: MatchCandidate): Scor
       reasons.push(`UPC ${candidate.upc} matches exactly`)
       break
     case 'semantic':
-      score = candidate.rawScore ?? 0
-      reasons.push(`Description is a close match (${Math.round(score * 100)}% similar)`)
-      break
     case 'trigram':
-      score = (candidate.rawScore ?? 0) * 0.95
-      reasons.push('Description text overlaps')
+      // Blended below, from two views of the same evidence.
+      score = 0
       break
   }
 
-  // Description agreement corroborates a weak signal and slightly lifts a
-  // strong one. It never rescues a candidate on its own.
   const overlap = descriptionOverlap(lineText, candidate.description)
+
+  // A prior correction is the top signal and nothing corroborates it further
+  // (6.8). Letting the bonuses below apply to it would only push it into the
+  // clamp alongside an exact part-number match and lose the ordering the PRD
+  // asks for. A contradicted spec still demotes it, further down.
+  const corroborate = candidate.source !== 'correction'
+
   if (candidate.source === 'semantic' || candidate.source === 'trigram') {
-    score += overlap * 0.15
+    // Raw similarity and token overlap are averaged rather than one damping the
+    // other. Trigram similarity is structurally low whenever the catalogue
+    // description is longer than the request -- "12/2 MC cable" against "12/2
+    // MC cable with ground, 250ft roll" scores 0.39 even though it is exactly
+    // right -- and catalogue descriptions are nearly always the longer of the
+    // two. Jaccard overlap is length-normalised and does not suffer that, so
+    // the pair together reads a match far better than either alone.
+    const raw = candidate.rawScore ?? 0
+    score = raw * 0.5 + overlap * 0.5
+    reasons.push(
+      candidate.source === 'semantic'
+        ? `Description is a close match (${Math.round(raw * 100)}% similar)`
+        : `Description text overlaps (${Math.round(raw * 100)}% similar)`,
+    )
     if (overlap > 0.5) reasons.push('Wording lines up closely')
   }
 
-  if (sameManufacturer(line.manufacturer, candidate.manufacturer)) {
+  if (corroborate && sameManufacturer(line.manufacturer, candidate.manufacturer)) {
     score += 0.02
     reasons.push(`Same manufacturer (${candidate.manufacturer})`)
-  } else if (line.manufacturer && candidate.manufacturer) {
+  } else if (corroborate && line.manufacturer && candidate.manufacturer) {
     score -= 0.05
     reasons.push(`Different manufacturer (asked for ${line.manufacturer}, this is ${candidate.manufacturer})`)
   }
@@ -279,11 +318,23 @@ export function scoreCandidate(line: MatchLine, candidate: MatchCandidate): Scor
   if (conflicts.length > 0) {
     score *= 0.55
     reasons.push(`Specification differs: ${conflicts.join('; ')}`)
+  } else {
+    // Agreement on the numbers is worth more than its length in words, and is
+    // capped so it lifts a plausible match rather than manufacturing one.
+    const agreements = corroborate ? specAgreements(lineText, candidate.description) : []
+    if (agreements.length > 0) {
+      score += Math.min(0.15, agreements.length * 0.12)
+      reasons.push(`Specification matches: ${agreements.join(', ')}`)
+    }
   }
+
+  // Corrections clamp above everything else, so a confirmed one always sorts
+  // ahead of an exact part number rather than tying with it.
+  const ceiling = candidate.source === 'correction' ? 0.995 : 0.98
 
   return {
     candidate,
-    confidence: Math.max(0, Math.min(0.995, Math.round(score * 1000) / 1000)),
+    confidence: Math.max(0, Math.min(ceiling, Math.round(score * 1000) / 1000)),
     reasoning: reasons.join('. '),
     conflicts,
   }
@@ -344,17 +395,23 @@ export function matchLine(
     flagReasons.push('ambiguous')
   }
 
+  const toAlternative = (scored: ScoredCandidate): MatchAlternative => ({
+    product_id: scored.candidate.productId,
+    sku: scored.candidate.sku,
+    description: scored.candidate.description,
+    confidence: scored.confidence,
+    method: scored.candidate.source,
+    reasoning: scored.reasoning,
+  })
+
+  // Below `no_match` the line carries no product, so the winner is not the
+  // match -- but it must still be offered. Slicing from 1 here would drop the
+  // best candidate we found on the floor and tell the rep nothing matched,
+  // which is the worst of both: no answer and no lead.
   const alternatives: MatchAlternative[] =
     band === 'high' && !flagReasons.includes('ambiguous')
       ? []
-      : ranked.slice(1, 6).map((scored) => ({
-          product_id: scored.candidate.productId,
-          sku: scored.candidate.sku,
-          description: scored.candidate.description,
-          confidence: scored.confidence,
-          method: scored.candidate.source,
-          reasoning: scored.reasoning,
-        }))
+      : ranked.slice(band === 'no_match' ? 0 : 1, band === 'no_match' ? 5 : 6).map(toAlternative)
 
   return {
     productId: band === 'no_match' ? null : winner.candidate.productId,

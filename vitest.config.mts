@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // The integration suite talks to the real project; it has its own config.
+    exclude: ['tests/integration/**'],
   },
   resolve: {
     alias: {
