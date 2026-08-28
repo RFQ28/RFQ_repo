@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/*
+  A desk tool. Dense, legible at a glance, and quiet enough to sit next to
+  Outlook all day. Colour carries one job only: it marks what needs the rep's
+  attention (6.9), so it is spent sparingly everywhere else.
+*/
+
+@theme {
+  --color-canvas: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-line: #e3e6ea;
+  --color-line-strong: #cbd1d9;
+
+  --color-ink: #14181f;
+  --color-ink-soft: #4b5563;
+  --color-ink-faint: #8b939f;
+
+  --color-accent: #1a56db;
+  --color-accent-soft: #eef2ff;
+
+  --color-flag: #b42318;
+  --color-flag-soft: #fef3f2;
+  --color-warn: #b54708;
+  --color-warn-soft: #fffaeb;
+  --color-ok: #067647;
+  --color-ok-soft: #ecfdf3;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reps drive this from the keyboard, so focus must always be obvious. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* Tabular figures everywhere a quantity or price is shown. */
+.nums {
+  font-variant-numeric: tabular-nums;
+}
