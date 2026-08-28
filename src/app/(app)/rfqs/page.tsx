@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { Badge, Card, EmptyState, PageHeader } from '@/components/ui'
@@ -32,7 +33,7 @@ export default async function RfqsPage() {
   // RLS scopes this to the caller's tenant; the filter is belt and braces.
   const { data: rfqs } = await supabase
     .from('rfqs')
-    .select('id, status, job_name, contractor_name, due_date, received_at, claimed_by, customers(name)')
+    .select('id, status, job_name, contractor_name, due_date, received_at, claimed_by, customers(name), quotes(id)')
     .eq('tenant_id', tenant.id)
     .neq('classification', 'not_rfq')
     .order('received_at', { ascending: false })
@@ -66,7 +67,18 @@ export default async function RfqsPage() {
             <tbody>
               {rfqs.map((rfq) => (
                 <tr key={rfq.id} className="border-b border-line last:border-0 hover:bg-canvas">
-                  <td className="px-4 py-2.5 font-medium text-ink">{rfq.job_name ?? 'Untitled'}</td>
+                  <td className="px-4 py-2.5 font-medium text-ink">
+                    {(() => {
+                      const quote = (rfq.quotes as unknown as { id: string }[])?.[0]
+                      return quote ? (
+                        <Link href={`/quotes/${quote.id}`} className="text-accent hover:underline">
+                          {rfq.job_name ?? 'Untitled'}
+                        </Link>
+                      ) : (
+                        (rfq.job_name ?? 'Untitled')
+                      )
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5 text-ink-soft">
                     {(rfq.customers as { name: string } | null)?.name ?? rfq.contractor_name ?? '—'}
                   </td>

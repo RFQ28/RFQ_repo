@@ -598,7 +598,8 @@ export type Database = {
         'contractor_name' | 'due_date' | 'delivery_address' | 'received_at' |
         'draft_ready_at' | 'first_opened_at' | 'claimed_by' | 'claimed_at' | 'failure_reason',
         [Rel<'rfqs_customer_id_fkey', 'customer_id', 'customers'>,
-         Rel<'rfqs_email_id_fkey', 'email_id', 'inbound_emails'>]>
+         Rel<'rfqs_email_id_fkey', 'email_id', 'inbound_emails'>,
+         Rel<'rfqs_claimed_by_fkey', 'claimed_by', 'users'>]>
       classification_log: Table<ClassificationLogRow, 'email_id' | 'rfq_id' | 'confidence' |
         'reasoning' | 'signals' | 'model' | 'corrected_to' | 'corrected_by' | 'corrected_at'>
       rfq_lines: Table<RfqLineRow, 'description' | 'quantity' | 'uom_as_written' |
@@ -614,7 +615,8 @@ export type Database = {
       quote_lines: Table<QuoteLineRow, Exclude<keyof QuoteLineRow,
         'tenant_id' | 'quote_id' | 'line_number'>,
         [Rel<'quote_lines_product_id_fkey', 'product_id', 'products'>,
-         Rel<'quote_lines_quote_id_fkey', 'quote_id', 'quotes'>]>
+         Rel<'quote_lines_quote_id_fkey', 'quote_id', 'quotes'>,
+         Rel<'quote_lines_rfq_line_id_fkey', 'rfq_line_id', 'rfq_lines'>]>
       corrections: Table<CorrectionRow, 'customer_id' | 'matched_product_id' |
         'corrected_product_id' | 'kind' | 'corrected_uom' | 'corrected_qty' |
         'quote_line_id' | 'rfq_id' | 'corrected_by' | 'times_reinforced' | 'last_applied_at'>
