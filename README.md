@@ -110,11 +110,12 @@ npm run verify:intake    # webhook and worker edges (needs `npm run dev` running
 
 ## Known gaps
 
-- **Microsoft Graph needs an Entra app registration.** Set `MS_CLIENT_ID`,
-  `MS_CLIENT_SECRET` and `MS_REDIRECT_URI`; the app registration needs the
-  delegated `Mail.Read` and `offline_access` scopes and a redirect URI matching
-  `MS_REDIRECT_URI`. Until then `/settings/mailbox` says so rather than failing
-  obscurely.
+- **Microsoft Graph needs an Entra app registration** — see
+  [docs/SETUP-GRAPH.md](docs/SETUP-GRAPH.md). Connecting a live mailbox also
+  needs a publicly reachable HTTPS URL, because Graph validates the webhook
+  before it will create a subscription and cannot reach localhost. Everything
+  else works on localhost. Until it is configured, `/settings/mailbox` says so
+  rather than failing obscurely.
 - **Classification needs `ANTHROPIC_API_KEY`.** Without it every email is
   surfaced to a rep as a possible RFQ rather than being triaged — deliberately,
   since silently binning a distributor's inbox is the worse failure.

@@ -22,8 +22,20 @@ import type { MailboxConnectionRow } from '@/lib/db/types'
 const GRAPH = 'https://graph.microsoft.com/v1.0'
 const LOGIN = 'https://login.microsoftonline.com'
 
-/** Read mail and identify the signer. Deliberately no write or send scope. */
-export const SCOPES = ['offline_access', 'openid', 'email', 'profile', 'Mail.Read', 'User.Read']
+/**
+ * Read mail and identify the signer. Deliberately no write or send scope.
+ *
+ * `Mail.Read.Shared` is the one that matters and is easy to get wrong:
+ * `Mail.Read` grants only the signed-in user's *own* mailbox, and the whole
+ * premise here is watching a shared one (quotes@distributor.com) that the owner
+ * has Full Access to. Without the .Shared scope every real deployment gets a
+ * 403 from `/users/{mailbox}/messages`. `Mail.Read` stays for the case where a
+ * distributor points us at the owner's own inbox instead.
+ */
+export const SCOPES = [
+  'offline_access', 'openid', 'email', 'profile',
+  'Mail.Read', 'Mail.Read.Shared', 'User.Read',
+]
 
 /**
  * Graph refuses an expiry beyond 4230 minutes for a message subscription, so
