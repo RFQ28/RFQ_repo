@@ -9,14 +9,18 @@ The product spec is [docs/PRD.md](docs/PRD.md). Section numbers in code comments
 
 ## Where the build is
 
+Nothing has been run against a database yet — the migrations are written but not
+applied, so treat everything below as "written and type-checked, not yet
+exercised against Postgres".
+
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Multi-tenant schema, RLS, auth, onboarding, catalogue + price ingestion | **Built** |
-| 2 | Graph mailbox, forwarding fallback, classification, dedup, revisions | Schema and queue in place; intake not written |
-| 3 | Document parsing, line extraction, matching, embeddings | Tables and vector index in place |
-| 4 | Pricing engine, UOM conversion, stock, substitutions | Rules, UOM table and cross-reference modelled |
-| 5 | Review screen | Not started |
-| 6 | PDF, exports, thread reply, correction loop | Not started |
+| 2 | Graph mailbox, forwarding fallback, classification, dedup, revisions | **Partial** — classifier, queue and storage schema built; Graph connection, webhook and dedup not written |
+| 3 | Document parsing, line extraction, matching, embeddings | **Partial** — text and spreadsheet extraction, matching and confidence built; PDF, OCR and Word not; embeddings need a provider |
+| 4 | Pricing engine, UOM conversion, stock check, substitutions | **Built** |
+| 5 | Review screen | **Built** |
+| 6 | PDF, exports, thread reply, correction capture, learning loop | **Partial** — correction capture and the learning loop are wired; PDF, exports and notifications are not |
 | 7 | Owner weekly summary, stale alert, won/lost, admin tooling | Not started |
 
 ## Running it
@@ -96,6 +100,16 @@ npm run lint        # eslint
 
 ## Known gaps
 
+- **Nothing has been run against a real database.** The migrations and the
+  queries against them are unexercised until a Postgres exists to apply them to.
+- **Semantic matching needs an embedding provider.** Anthropic does not offer an
+  embeddings endpoint, so `cataloguePorts` takes an `embed` function as an
+  injected port and simply skips vector search when none is supplied. Matching
+  still works on corrections, part numbers and trigram search; the vector index
+  and RPC are in place waiting for whichever provider gets chosen.
+- **PDF, image and Word RFQ attachments are not parsed yet.** They are surfaced
+  to the rep as a named unparsed line ("takeoff.pdf is a PDF — open it and add
+  these lines by hand") rather than ignored.
 - Legacy `.xls` uploads are rejected with a message rather than parsed; `.xlsx`
   and `.csv` are supported.
 - `npm audit` reports a moderate advisory in `uuid`, reached through `exceljs`.
