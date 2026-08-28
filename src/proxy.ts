@@ -9,7 +9,7 @@ const PUBLIC_PATHS = ['/login', '/auth', '/api/graph/webhook', '/api/inbound', '
  * checked server-side per route (src/lib/auth/session.ts) and again at the
  * database by RLS.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
