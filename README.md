@@ -20,6 +20,9 @@ verify:intake` proves the last of them: a job that throws goes back to
 `queued` with its error recorded, rather than sitting in `running` forever,
 never retried and never reported.
 
+`0009_cron.sql` is separate and optional — it drives the job queue from
+Postgres on a schedule. See [docs/SETUP-CRON.md](docs/SETUP-CRON.md).
+
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Multi-tenant schema, RLS, auth, onboarding, catalogue + price ingestion | **Built** |
@@ -145,13 +148,21 @@ development, it never changes again.
 | `/api/jobs/run` | every minute | Drains the queue. This is the latency between an RFQ arriving and a rep seeing a draft. |
 | `/api/jobs/schedule` | every 6 hours | Queues the Graph subscription renewal. Graph caps a mail subscription at under three days; without this the mailbox goes quiet on day three and nothing reports it. |
 
-**Vercel's Hobby plan runs cron jobs once a day.** At that cadence an RFQ can
-sit for 24 hours before anyone sees it, and the renewal sweep is too infrequent
-to be trusted. Either use a Pro plan, or leave the crons off and drive both
-endpoints from something else on a real interval — a GitHub Actions schedule or
-any cron service, sending `Authorization: Bearer $WORKER_SECRET`. Both endpoints
-accept GET and POST, and overlapping calls are safe: `claim_jobs` locks rows
-with `SKIP LOCKED`.
+**Vercel's Hobby plan runs cron jobs once a day**, and an RFQ that waits 24
+hours for a rep to see it is not a product. So the scheduler does not have to
+be Vercel's:
+
+**Supabase `pg_cron` is the recommended driver** — every minute on every plan
+including the free tier, and it does not change if the app moves off Vercel.
+Apply `supabase/migrations/0009_cron.sql`, put the URL and the worker secret in
+Vault, and both jobs run from the database that already holds the queue. Full
+setup and the queries to prove it is running:
+[docs/SETUP-CRON.md](docs/SETUP-CRON.md).
+
+Anything else that can make an authenticated request on an interval works too —
+a GitHub Actions schedule, any cron service — sending `Authorization: Bearer
+$WORKER_SECRET`. Both endpoints accept GET and POST, and overlapping calls are
+safe: `claim_jobs` locks rows with `SKIP LOCKED`.
 
 ## Known gaps
 
