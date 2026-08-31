@@ -17,7 +17,17 @@ export const dynamic = 'force-dynamic'
  * their inbox has been told the job is done when it is not.
  */
 export async function GET(request: NextRequest) {
-  const settings = new URL('/settings/mailbox', clientEnv().NEXT_PUBLIC_APP_URL)
+  // Back to the origin the admin actually came in on, not to the configured
+  // app URL. These are the same in production and deliberately different in
+  // development, where the browser works against localhost while
+  // NEXT_PUBLIC_APP_URL has to be a public HTTPS host for Graph to reach the
+  // webhook at all. Redirecting to the configured URL sent an admin who had
+  // just consented to a host they had no session cookie on, so a connection
+  // that had in fact succeeded showed them a login page.
+  //
+  // The subscription's notificationUrl below still uses NEXT_PUBLIC_APP_URL:
+  // that one is Microsoft calling us, and it must be the public address.
+  const settings = new URL('/settings/mailbox', request.nextUrl.origin)
 
   const error = request.nextUrl.searchParams.get('error')
   if (error) {
