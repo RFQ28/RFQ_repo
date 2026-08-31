@@ -200,10 +200,43 @@ async function graphFetch(
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')
-    throw new GraphError(`Graph ${init.method ?? 'GET'} ${path} failed: ${response.status}`, response.status, body)
+    throw new GraphError(
+      `Graph ${init.method ?? 'GET'} ${path} failed: ${response.status}${explain(body)}`,
+      response.status,
+      body,
+    )
   }
 
   return response
+}
+
+/**
+ * Graph's own account of what went wrong, appended to the thrown message.
+ *
+ * The status alone is close to useless to whoever is doing the onboarding. A
+ * 404 from POST /subscriptions reads as "the endpoint is wrong" when what
+ * Graph actually said was `The requested user 'x@outlook.com' is invalid` —
+ * i.e. the address typed into the form is not a mailbox in this tenant. That
+ * sentence is the whole diagnosis, it was already being fetched, and it was
+ * being dropped on the floor before it reached the screen.
+ */
+function explain(body: string): string {
+  if (!body) return ''
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { code?: string; message?: string; innerError?: { message?: string } }
+    }
+    const code = parsed.error?.code
+    const message = parsed.error?.message ?? parsed.error?.innerError?.message
+    if (!code && !message) return ''
+    // Graph nests the useful sentence inside a wrapper for subscription
+    // failures: "Operation: Create; Exception: [Status Code: NotFound;
+    // Reason: The requested user 'x' is invalid.]"
+    const reason = message?.match(/Reason:\s*([^\]]+)/)?.[1]?.trim()
+    return ` — ${[code, reason ?? message].filter(Boolean).join(': ')}`
+  } catch {
+    return ` — ${body.slice(0, 200)}`
+  }
 }
 
 export type GraphMessage = {
