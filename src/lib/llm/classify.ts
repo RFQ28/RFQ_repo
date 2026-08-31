@@ -116,7 +116,13 @@ export function obviousNonRfq(input: {
     }
   }
 
-  if (/^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounce)/.test(from.split('@')[0] ?? '')) {
+  // Anchored to the start, this missed `microsoft-noreply@`, `github-noreply@`
+  // and every other `<brand>-noreply@` — which is how most large senders write
+  // the address, and how a Microsoft invoice ended up in a rep's RFQ queue.
+  // Matched as a delimited token instead, so it also catches `noreply.billing@`
+  // without firing on a surname that merely contains the letters.
+  const localPart = from.split('@')[0] ?? ''
+  if (/(^|[.\-_+])(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?)([.\-_+]|$)/.test(localPart)) {
     return { decision: 'not_rfq', reasoning: `Automated sender (${input.from})` }
   }
 

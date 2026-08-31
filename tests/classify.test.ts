@@ -37,6 +37,34 @@ describe('obviousNonRfq', () => {
     expect(obviousNonRfq({ from: 'MAILER-DAEMON@mail.com', subject: 'Failure' })?.decision).toBe('not_rfq')
   })
 
+  // A real Microsoft invoice reached a rep's RFQ queue because the rule was
+  // anchored to the start of the local part, and every large sender prefixes
+  // its brand. These are the shapes actually seen in a live mailbox.
+  it('drops no-reply senders that carry a brand prefix', () => {
+    for (const from of [
+      'microsoft-noreply@microsoft.com',
+      'github-noreply@github.com',
+      'noreply.billing@vendor.com',
+      'accounts_noreply@supplier.co',
+      'bounces@list.example.com',
+    ]) {
+      expect(obviousNonRfq({ from, subject: 'Anything' })?.decision, from).toBe('not_rfq')
+    }
+  })
+
+  // The other half of the rule: a contractor whose address merely contains
+  // those letters must still reach a rep.
+  it('keeps senders that only look automated', () => {
+    for (const from of [
+      'noreplacement@contractor.com',
+      'j.bouncer@electric.com',
+      'postmasters-supply@trade.com',
+      'mike@noreply-electric.com',
+    ]) {
+      expect(obviousNonRfq({ from, subject: 'Quote request' }), from).toBeNull()
+    }
+  })
+
   it('drops out-of-office replies and bounces', () => {
     expect(obviousNonRfq({ from: 'mike@contractor.com', subject: 'Out of Office: RFQ' })?.decision).toBe('not_rfq')
     expect(obviousNonRfq({ from: 'x@y.com', subject: 'Undeliverable: quote' })?.decision).toBe('not_rfq')
