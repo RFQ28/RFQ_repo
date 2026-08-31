@@ -2,9 +2,11 @@ import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * One primary action per view, and it is ink — there is no accent hue to spend.
- * `secondary` inverts to ink on hover so the row's commit action still feels
- * like the heaviest thing on the row without shouting from across the screen.
+ * One primary action per view, and it carries the accent — it is the single
+ * thing on a screen the rep is most likely to want, so it should be findable
+ * without reading. `secondary` stays ink-on-hover: a row-level commit still
+ * feels like the heaviest thing on its row without competing with the one
+ * blue button, or with a red severity edge two rows down.
  */
 export function Button({
   variant = 'primary',
@@ -22,7 +24,7 @@ export function Button({
         'disabled:cursor-not-allowed disabled:opacity-40',
         size === 'sm' ? 'px-3 py-2 text-sm' : 'px-5 py-2.5 text-base',
         variant === 'primary' &&
-          'bg-ink font-semibold text-white shadow-primary hover:bg-[#2a2d35]',
+          'bg-accent font-semibold text-white shadow-primary hover:bg-accent-hover',
         variant === 'secondary' &&
           'border border-line-strong bg-surface font-semibold text-ink shadow-control hover:border-ink hover:bg-ink hover:text-white',
         variant === 'ghost' && 'font-medium text-ink-mid hover:bg-fill-strong hover:text-ink',
@@ -166,7 +168,7 @@ export function Badge({
         tone === 'ok' && 'bg-ok-soft text-good',
         tone === 'warn' && 'bg-review-tint text-review',
         tone === 'flag' && 'bg-block-tint text-block',
-        tone === 'accent' && 'bg-fill-strong text-ink',
+        tone === 'accent' && 'bg-accent-soft text-accent-ink',
       )}
     >
       {children}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { Priority, Severity } from '@/lib/quote/triage'
-import { cn, formatMoney, formatQty } from '@/lib/utils'
+import { cn, formatMoney, formatPriceInput, formatQty } from '@/lib/utils'
 import type { DecoratedLine } from './model'
 import type { LineEditInput } from './actions'
 
@@ -64,7 +64,11 @@ export function IssueList({ line }: { line: DecoratedLine }) {
 /** Extended price over margin. The one column the eye scans vertically. */
 export function Money({ line, size = 'row' }: { line: DecoratedLine; size?: 'row' | 'focus' }) {
   const priced = line.extendedPrice !== null
-  const thin = line.lineMarginPercent !== null && line.lineMarginPercent < 8
+  // Below cost is not "thin", it is the `below_cost` flag wearing a number.
+  // It gets the block colour so a negative margin cannot be mistaken for a
+  // merely unexciting one at a glance down the column.
+  const belowCost = line.lineMarginPercent !== null && line.lineMarginPercent < 0
+  const thin = line.lineMarginPercent !== null && line.lineMarginPercent >= 0 && line.lineMarginPercent < 8
   return (
     <div className="text-right">
       <div
@@ -80,7 +84,7 @@ export function Money({ line, size = 'row' }: { line: DecoratedLine; size?: 'row
         <div
           className={cn(
             'nums mt-[3px] font-mono text-[11px]',
-            thin ? 'text-review' : 'text-good',
+            belowCost ? 'font-semibold text-block' : thin ? 'text-review' : 'text-good',
           )}
         >
           {line.lineMarginPercent}% margin
@@ -217,7 +221,7 @@ export function LineFields({
       <Field
         label={wide ? 'Unit price' : 'Price'}
         variant={variant}
-        value={line.unitPrice === null ? '' : String(line.unitPrice)}
+        value={formatPriceInput(line.unitPrice)}
         width={wide ? 126 : 82}
         disabled={readOnly}
         // A line flagged "no price" with an empty box is the thing that blocks

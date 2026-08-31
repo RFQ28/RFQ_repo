@@ -70,7 +70,7 @@ export default async function QuotesPage() {
                     <td className="px-5 py-3">
                       <Link
                         href={`/quotes/${quote.id}`}
-                        className="font-mono text-xs font-medium text-ink-mid underline-offset-2 hover:text-ink hover:underline"
+                        className="font-mono text-xs font-medium text-accent-ink underline-offset-2 hover:underline"
                       >
                         {quote.quote_number ?? 'draft'}
                       </Link>
@@ -78,7 +78,7 @@ export default async function QuotesPage() {
                     <td className="px-5 py-3">
                       <Link
                         href={`/quotes/${quote.id}`}
-                        className="text-base font-semibold text-ink underline-offset-2 hover:underline"
+                        className="text-base font-semibold text-accent-ink underline-offset-2 hover:underline"
                       >
                         {rfq?.job_name ?? 'Untitled'}
                       </Link>
@@ -91,7 +91,7 @@ export default async function QuotesPage() {
                     </td>
                     <td className="px-5 py-3 text-sm text-ink-faint">
                       {rfq?.users?.full_name ?? rfq?.users?.email ?? (
-                        <span className="text-ink-pale">unclaimed</span>
+                        <span className="text-ink-faint">unclaimed</span>
                       )}
                     </td>
                     <td className="px-5 py-3">

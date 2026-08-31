@@ -697,7 +697,7 @@ function SourcePane({
                         isSelected ? 'bg-fill-strong' : 'hover:bg-fill',
                       )}
                     >
-                      <span className="nums text-right font-mono text-2xs text-ink-pale">
+                      <span className="nums text-right font-mono text-2xs text-ink-faint">
                         {line.lineNumber}
                       </span>
                       <span className="font-mono text-xs leading-[1.5] text-ink-soft">

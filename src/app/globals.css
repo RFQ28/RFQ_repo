@@ -6,10 +6,11 @@
 
   Two rules carry the whole design:
 
-  1. Colour means severity and nothing else. Blocked is red, needs-review is
-     amber, healthy is green, and every other pixel is a grey. There is no
-     decorative accent, so the four red edges on a 26-line quote are the only
-     four things that pull the eye.
+  1. Colour means severity, and the accent means identity. Blocked is red,
+     needs-review is amber, healthy is green; blue is navigation, links and
+     state-at-rest. The two never mix: no accent appears inside a quote line,
+     so the four red edges on a 26-line quote are still the only four things
+     that pull the eye. Everything else is a grey.
   2. Every number is mono and tabular, so quantities and money line up into
      columns the rep can scan vertically without reading.
 */
@@ -20,14 +21,30 @@
   --color-surface: #ffffff;       /* card, rows */
   --color-sunken: #fbfaf8;        /* header band, side pane, action bar */
 
-  /* Ink, darkest to palest ------------------------------------------------ */
-  --color-ink: #16181d;           /* titles, values, primary button */
-  --color-ink-soft: #5b6070;      /* explanations */
-  --color-ink-mid: #6b7080;       /* secondary labels, ghost button text */
-  --color-ink-faint: #8a8f9c;     /* SKUs, metadata */
-  --color-ink-dim: #9aa0ad;       /* eyebrows, field labels */
-  --color-ink-ghost: #b6bac4;     /* line numbers */
-  --color-ink-pale: #c3c7d0;      /* empty values */
+  /* Ink, darkest to palest ------------------------------------------------
+     Four steps, not seven. The ramp used to run down to #c3c7d0, which is
+     1.7:1 on white — a SKU, a line number and a field label were all below
+     the 4.5:1 floor for text under 18px, and they are the labels a rep reads
+     eighty times a day. Each value below is solved against the *darkest*
+     surface it can land on — the canvas, not white — so a label keeps its
+     4.5:1 wherever it is placed rather than only inside a card.
+
+     Seven legible steps do not exist: forcing each of the old values to 4.5:1
+     lands them all within two hex points of each other. So the bottom three
+     converge here, and hierarchy below `mid` is carried by size, weight and
+     letter-spacing instead of by lightness. `pale` is the one exception and
+     is decorative by contract — see its note. */
+  --color-ink: #16181d;           /* titles, values, primary button — 17.8:1 */
+  --color-ink-soft: #5b6070;      /* explanations — 6.3:1 */
+  --color-ink-mid: #6b7080;       /* secondary labels, ghost button text — 4.9:1 */
+  --color-ink-faint: #686b74;     /* SKUs, metadata — 4.5:1 on canvas, the floor */
+  --color-ink-dim: #686b74;       /* eyebrows, field labels — converged on faint */
+  --color-ink-ghost: #686b74;     /* line numbers — converged on faint */
+
+  /* The em-dash that stands in for an absent value, and nothing else. It says
+     "empty" and is always beside a label that already carries the meaning, so
+     it is the one place a sub-AA grey is honest. Do not use it for text. */
+  --color-ink-pale: #9aa0ad;
 
   /* Hairlines and fills. Depth comes from the sunken bands, not from borders. */
   --color-line: rgba(20, 22, 28, 0.08);         /* band dividers */
@@ -52,12 +69,19 @@
   --color-good-bar: oklch(0.62 0.10 155);
   --color-good-tint: oklch(0.52 0.11 155 / 0.1);
 
-  --color-unpriced: #b0761c;      /* "+4 unpriced" — a warning, not a failure */
+  --color-unpriced: #916117;      /* "+4 unpriced" — a warning, not a failure */
 
-  /* Aliases kept so the settings and admin screens stay on the same palette.
-     There is deliberately no accent hue: the primary action is ink. */
-  --color-accent: #16181d;
-  --color-accent-soft: rgba(20, 22, 28, 0.06);
+  /* Accent. Identity and navigation only — never severity.
+     Blue is the furthest hue from the red/amber/green triad above, so an
+     accent pill and a severity pill can sit in the same row without the eye
+     having to work out which one is the alarm. The rule from the top of this
+     file still holds on the review screen: nothing there is accent-coloured,
+     so the red edges remain the only things that pull. */
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #1a44bd;
+  --color-accent-soft: rgba(29, 78, 216, 0.09);
+  --color-accent-edge: rgba(29, 78, 216, 0.22);
+  --color-accent-ink: #1a3faa;    /* accent text on accent-soft, AA at 12px */
   --color-flag: oklch(0.55 0.17 22);
   --color-flag-soft: oklch(0.55 0.17 22 / 0.07);
   --color-warn: oklch(0.55 0.12 62);
@@ -114,7 +138,7 @@
     with `outline-none` and still show focus its own way.
   */
   :focus-visible {
-    outline: 2px solid var(--color-ink);
+    outline: 2px solid var(--color-accent);
     outline-offset: 1px;
     border-radius: 2px;
   }

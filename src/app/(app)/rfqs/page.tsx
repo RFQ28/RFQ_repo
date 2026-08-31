@@ -70,7 +70,11 @@ export default async function RfqsPage() {
               {rfqs.map((rfq) => {
                 const quote = (rfq.quotes as unknown as { id: string }[])?.[0]
                 const left = dueRelative(rfq.due_date)
-                const pressing = left !== null && (left.endsWith('late') || left === 'due today')
+                // Tomorrow is pressing too: a rep reading this list in the
+                // afternoon has one working day left on it, not two.
+                const pressing =
+                  left !== null && (left.endsWith('late') || left === 'due today' || left === '1 day left')
+                const late = left !== null && left.endsWith('late')
 
                 return (
                   <tr
@@ -81,7 +85,7 @@ export default async function RfqsPage() {
                       {quote ? (
                         <Link
                           href={`/quotes/${quote.id}`}
-                          className="text-base font-semibold text-ink underline-offset-2 hover:underline"
+                          className="text-base font-semibold text-accent-ink underline-offset-2 hover:underline"
                         >
                           {rfq.job_name ?? 'Untitled'}
                         </Link>
@@ -104,7 +108,12 @@ export default async function RfqsPage() {
                         <>
                           <span className="nums font-mono text-xs text-ink-mid">{rfq.due_date}</span>
                           {left && (
-                            <span className={cn('ml-2 text-xs', pressing ? 'text-review' : 'text-ink-dim')}>
+                            <span
+                              className={cn(
+                                'ml-2 text-xs',
+                                late ? 'font-semibold text-block' : pressing ? 'font-semibold text-review' : 'text-ink-dim',
+                              )}
+                            >
                               {left}
                             </span>
                           )}
