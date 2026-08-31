@@ -50,7 +50,7 @@ export function UploadForm() {
             type="file"
             accept=".csv,.xlsx,.xlsm,.tsv,.txt"
             required
-            className="w-full text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-line-strong file:bg-surface file:px-3 file:py-1.5 file:text-sm file:text-ink hover:file:bg-canvas"
+            className="w-full text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-line-strong file:bg-surface file:px-3 file:py-1.5 file:text-sm file:text-ink hover:file:bg-fill"
           />
           <p className="text-xs text-ink-faint">
             .xlsx or .csv. Old .xls files need re-saving first.

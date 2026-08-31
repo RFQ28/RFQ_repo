@@ -2,95 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ConfidenceBand, MatchAlternative } from '@/lib/db/types'
-import { FLAG_LABELS, flagPriority } from '@/lib/quote/draft'
-import { cn, formatMoney, formatQty, pluralize } from '@/lib/utils'
-import { Badge, Button, Callout } from '@/components/ui'
+import { GROUPS, dueRelative, type GroupKey } from '@/lib/quote/triage'
+import { cn, formatMoney, pluralize } from '@/lib/utils'
+import { Badge, Button, Callout, Card, Eyebrow, KeyCap, MonoTag, Segmented } from '@/components/ui'
 import { ProductPicker } from './product-picker'
+import { TriagePane } from './triage'
+import {
+  EDGE, IssueList, LineContext, LineFields, Money, PILL, SEVERITY_BG, type EditHandler,
+} from './line-bits'
+import {
+  countLines, decorate, recompute,
+  type Counts, type DecoratedLine, type ReviewLine, type ReviewQuote, type SourceLine,
+} from './model'
 import {
   acceptQuoteLine, addQuoteLine, applyQuoteMargin, changeQuoteLineMatch, claimRfq,
   deleteQuoteLine, updateQuoteLine,
 } from './actions'
 
-export type SourceLine = {
-  id: string
-  lineNumber: number
-  rawText: string
-  isParsed: boolean
-  parseError: string | null
-  sourceDocument: string | null
-}
+export type { ReviewLine, ReviewQuote, SourceLine } from './model'
 
-export type ReviewLine = {
-  id: string
-  lineNumber: number
-  rfqLineId: string | null
-  productId: string | null
-  sku: string | null
-  productDescription: string | null
-  manufacturer: string | null
-  manufacturerPartNumber: string | null
-  cost: number | null
-  matchConfidence: number | null
-  matchBand: ConfidenceBand
-  matchMethod: string | null
-  matchReasoning: string | null
-  alternatives: MatchAlternative[]
-  requestedQty: number | null
-  requestedUom: string | null
-  quotedQty: number | null
-  quotedUom: string | null
-  uomConversionApplied: boolean
-  uomConversionNote: string | null
-  uomUnresolved: boolean
-  listPrice: number | null
-  unitPrice: number | null
-  priceSource: string | null
-  priceMissing: boolean
-  lineMarginPercent: number | null
-  marginLocked: boolean
-  extendedPrice: number | null
-  isSubstitution: boolean
-  substitutedForText: string | null
-  onHandQty: number | null
-  stockShortfall: boolean
-  leadTimeDays: number | null
-  isFlagged: boolean
-  flagReasons: string[]
-  note: string | null
-  isManual: boolean
-}
+type Filter = 'needs' | 'priced' | 'all'
 
-export type ReviewQuote = {
-  id: string
-  rfqId: string
-  quoteNumber: string | null
-  status: string
-  subtotal: number | null
-  total: number | null
-  terms: string | null
-  validUntil: string | null
-  deliveryNotes: string | null
-  globalMarginPercent: number | null
-  customerContactName: string | null
-  customerContactEmail: string | null
-  customerName: string | null
-  jobName: string | null
-  dueDate: string | null
-  receivedAt: string
-  deliveryAddress: string | null
-  emailSubject: string | null
-  emailFrom: string | null
-  claimedBy: string | null
-  claimedByName: string | null
-}
-
-const BAND_TONE: Record<ConfidenceBand, 'ok' | 'accent' | 'warn' | 'flag'> = {
-  high: 'ok',
-  medium: 'accent',
-  low: 'warn',
-  no_match: 'flag',
-}
+/** Beyond this many rows in one group, the tail is folded away behind a link. */
+const GROUP_PREVIEW = 8
 
 export function ReviewScreen({
   quote,
@@ -109,8 +43,14 @@ export function ReviewScreen({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [showConfirmed, setShowConfirmed] = useState(false)
+  const [filter, setFilter] = useState<Filter>('needs')
+  const [collapsed, setCollapsed] = useState<Set<GroupKey>>(() => new Set())
+  const [expanded, setExpanded] = useState<Set<GroupKey>>(() => new Set())
   const [picker, setPicker] = useState<{ mode: 'change'; lineId: string } | { mode: 'add' } | null>(null)
+  const [triage, setTriage] = useState<{ ids: string[]; cursor: number } | null>(null)
+  // Desktop-only tool: above 1180px the source pane is always there, below it
+  // the rep opens it when they need to check what the contractor actually sent.
+  const [sourceOpen, setSourceOpen] = useState(false)
   const [, startTransition] = useTransition()
 
   // Adjusting state during render rather than in an effect: when the server
@@ -121,49 +61,44 @@ export function ReviewScreen({
     setLines(initialLines)
   }
 
-  const { flagged, confirmed } = useMemo(() => {
-    const flaggedLines = lines
-      .filter((line) => line.isFlagged)
-      .sort((a, b) => flagPriority(a.flagReasons) - flagPriority(b.flagReasons) || a.lineNumber - b.lineNumber)
-    return {
-      flagged: flaggedLines,
-      confirmed: lines.filter((line) => !line.isFlagged).sort((a, b) => a.lineNumber - b.lineNumber),
-    }
-  }, [lines])
+  const decorated = useMemo(() => lines.map(decorate), [lines])
+  const counts = useMemo(() => countLines(decorated), [decorated])
+
+  const subtotal = useMemo(
+    () => decorated.reduce((sum, line) => sum + (line.extendedPrice ?? 0), 0),
+    [decorated],
+  )
 
   const isClaimedByMe = quote.claimedBy === currentUserId
   const isClaimedByOther = quote.claimedBy !== null && !isClaimedByMe
   const readOnly = quote.status !== 'draft' && quote.status !== 'in_review'
 
-  const subtotal = useMemo(
-    () => lines.reduce((sum, line) => sum + (line.extendedPrice ?? 0), 0),
-    [lines],
-  )
-  const unpriced = lines.filter((line) => line.extendedPrice === null).length
+  const sourceByRfqLine = useMemo(() => {
+    const map = new Map<string, SourceLine>()
+    for (const line of source) map.set(line.id, line)
+    return map
+  }, [source])
 
   // --- saving -------------------------------------------------------------
 
-  const save = useCallback(
-    async (run: () => Promise<{ error?: string }>) => {
-      setSaveState('saving')
-      const result = await run()
-      if (result.error) {
-        setSaveState('error')
-        setError(result.error)
-        return false
-      }
-      setSaveState('saved')
-      setError(null)
-      return true
-    },
-    [],
-  )
+  const save = useCallback(async (run: () => Promise<{ error?: string }>) => {
+    setSaveState('saving')
+    const result = await run()
+    if (result.error) {
+      setSaveState('error')
+      setError(result.error)
+      return false
+    }
+    setSaveState('saved')
+    setError(null)
+    return true
+  }, [])
 
   /** Optimistic local edit plus a debounced write, so typing never stutters. */
   const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
-  const editLine = useCallback(
-    (lineId: string, patch: Partial<ReviewLine>, remote: Parameters<typeof updateQuoteLine>[0]) => {
+  const editLine: EditHandler = useCallback(
+    (lineId, patch, remote) => {
       setLines((current) =>
         current.map((line) => (line.id === lineId ? recompute({ ...line, ...patch }) : line)),
       )
@@ -191,62 +126,52 @@ export function ReviewScreen({
     }
   }, [])
 
-  // --- keyboard (6.9: reps are fast typists and resent a mouse-only UI) ----
+  // --- what the list shows ------------------------------------------------
 
-  const ordered = useMemo(() => [...flagged, ...(showConfirmed ? confirmed : [])], [flagged, confirmed, showConfirmed])
+  const visible = useMemo(() => {
+    const byNumber = (a: DecoratedLine, b: DecoratedLine) => a.lineNumber - b.lineNumber
+    if (filter === 'priced') return decorated.filter((line) => !line.isFlagged).sort(byNumber)
+    if (filter === 'all') return [...decorated].sort(byNumber)
+    return decorated.filter((line) => line.isFlagged).sort(byNumber)
+  }, [decorated, filter])
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) {
-        if (event.key === 'Escape') target.blur()
-        return
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-
-      const index = ordered.findIndex((line) => line.id === selectedId)
-
-      switch (event.key) {
-        case 'j':
-        case 'ArrowDown':
-          event.preventDefault()
-          setSelectedId(ordered[Math.min(index + 1, ordered.length - 1)]?.id ?? ordered[0]?.id ?? null)
-          break
-        case 'k':
-        case 'ArrowUp':
-          event.preventDefault()
-          setSelectedId(ordered[Math.max(index - 1, 0)]?.id ?? null)
-          break
-        case 'a':
-          if (selectedId && !readOnly) {
-            event.preventDefault()
-            void acceptLine(selectedId)
-          }
-          break
-        case 'c':
-          if (selectedId && !readOnly) {
-            event.preventDefault()
-            setPicker({ mode: 'change', lineId: selectedId })
-          }
-          break
-        case '?':
-          event.preventDefault()
-          setShowConfirmed((v) => !v)
-          break
-      }
+  /** "Needs you" is grouped by cause: eight lead times clear in one pass. */
+  const grouped = useMemo(() => {
+    const buckets = new Map<GroupKey, DecoratedLine[]>()
+    for (const line of visible) {
+      const bucket = buckets.get(line.group)
+      if (bucket) bucket.push(line)
+      else buckets.set(line.group, [line])
     }
+    return GROUPS.filter((group) => buckets.has(group.key)).map((group) => ({
+      ...group,
+      lines: buckets.get(group.key)!,
+    }))
+  }, [visible])
 
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordered, selectedId, readOnly])
+  const flaggedInOrder = useMemo(
+    () =>
+      decorated
+        .filter((line) => line.isFlagged)
+        .sort(
+          (a, b) =>
+            GROUPS.findIndex((g) => g.key === a.group) - GROUPS.findIndex((g) => g.key === b.group) ||
+            a.lineNumber - b.lineNumber,
+        ),
+    [decorated],
+  )
 
-  async function acceptLine(lineId: string) {
-    setLines((current) =>
-      current.map((line) => (line.id === lineId ? { ...line, isFlagged: false, flagReasons: [] } : line)),
-    )
-    await save(() => acceptQuoteLine(lineId))
-  }
+  // --- actions ------------------------------------------------------------
+
+  const acceptLine = useCallback(
+    async (lineId: string) => {
+      setLines((current) =>
+        current.map((line) => (line.id === lineId ? { ...line, isFlagged: false, flagReasons: [] } : line)),
+      )
+      await save(() => acceptQuoteLine(lineId))
+    },
+    [save],
+  )
 
   async function chooseProduct(productId: string) {
     if (!picker) return
@@ -261,140 +186,293 @@ export function ReviewScreen({
     if (ok) startTransition(() => router.refresh())
   }
 
-  async function removeLine(lineId: string) {
-    setLines((current) => current.filter((line) => line.id !== lineId))
-    const ok = await save(() => deleteQuoteLine(lineId))
-    if (!ok) startTransition(() => router.refresh())
-  }
+  const removeLine = useCallback(
+    async (lineId: string) => {
+      setLines((current) => current.filter((line) => line.id !== lineId))
+      const ok = await save(() => deleteQuoteLine(lineId))
+      if (!ok) startTransition(() => router.refresh())
+    },
+    [save, router],
+  )
+
+  // --- keyboard, list mode (reps are fast typists and resent a mouse) -----
+
+  useEffect(() => {
+    if (triage) return
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) {
+        if (event.key === 'Escape') target.blur()
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      const index = visible.findIndex((line) => line.id === selectedId)
+
+      switch (event.key) {
+        case 'j':
+        case 'ArrowDown':
+          event.preventDefault()
+          setSelectedId(visible[Math.min(index + 1, visible.length - 1)]?.id ?? visible[0]?.id ?? null)
+          break
+        case 'k':
+        case 'ArrowUp':
+          event.preventDefault()
+          setSelectedId(visible[Math.max(index - 1, 0)]?.id ?? null)
+          break
+        case 'a':
+          if (selectedId && !readOnly) {
+            event.preventDefault()
+            void acceptLine(selectedId)
+          }
+          break
+        case 'c':
+          if (selectedId && !readOnly) {
+            event.preventDefault()
+            setPicker({ mode: 'change', lineId: selectedId })
+          }
+          break
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [visible, selectedId, readOnly, triage, acceptLine])
+
+  const triageQueue = useMemo(() => {
+    if (!triage) return []
+    const byId = new Map(decorated.map((line) => [line.id, line]))
+    return triage.ids.map((id) => byId.get(id)).filter((line): line is DecoratedLine => Boolean(line))
+  }, [triage, decorated])
 
   return (
-    <div className="-mx-5 -my-8">
-      <Header
-        quote={quote}
-        subtotal={subtotal}
-        unpriced={unpriced}
-        flaggedCount={flagged.length}
-        totalCount={lines.length}
-        saveState={saveState}
-        readOnly={readOnly}
-        isClaimedByMe={isClaimedByMe}
-        isClaimedByOther={isClaimedByOther}
-        onClaim={async (force) => {
-          const ok = await save(() => claimRfq(quote.rfqId, force))
-          if (ok) startTransition(() => router.refresh())
-        }}
-        onApplyMargin={async (margin) => {
-          const result = await applyQuoteMargin(quote.id, margin)
-          if (result.error) {
-            setError(result.error)
-            return
-          }
-          if (result.skipped) {
+    <>
+      <Card>
+        <QuoteHeader
+          quote={quote}
+          counts={counts}
+          subtotal={subtotal}
+          readOnly={readOnly}
+          isClaimedByMe={isClaimedByMe}
+          isClaimedByOther={isClaimedByOther}
+          onClaim={async (force) => {
+            const ok = await save(() => claimRfq(quote.rfqId, force))
+            if (ok) startTransition(() => router.refresh())
+          }}
+          onApplyMargin={async (margin) => {
+            const result = await applyQuoteMargin(quote.id, margin)
+            if (result.error) {
+              setError(result.error)
+              return
+            }
+            const applied = result.applied ?? 0
             setError(
-              `${result.applied} line${result.applied === 1 ? '' : 's'} repriced. ` +
-                `${result.skipped} skipped — locked, or no cost in the catalogue.`,
+              result.skipped
+                ? `Applied ${margin}% to ${pluralize(applied, 'line')}. ` +
+                    `${result.skipped} skipped — locked, or no cost in the catalogue.`
+                : `Applied ${margin}% to ${pluralize(applied, 'line')}.`,
             )
-          }
-          startTransition(() => router.refresh())
-        }}
-      />
-
-      {error && (
-        <div className="border-b border-line bg-surface px-5 py-2">
-          <Callout tone="warn">{error}</Callout>
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-[minmax(320px,420px)_1fr]">
-        <OriginalDocument
-          source={source}
-          lines={lines}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
+            startTransition(() => router.refresh())
+          }}
         />
 
-        <div className="min-h-[70vh] px-5 py-4">
-          {flagged.length > 0 ? (
-            <section>
-              <div className="mb-3 flex items-baseline gap-2">
-                <h2 className="text-sm font-semibold text-ink">Needs you</h2>
-                <span className="text-sm text-ink-faint">{pluralize(flagged.length, 'line')}</span>
-              </div>
-              <div className="space-y-2">
-                {flagged.map((line) => (
-                  <LineCard
-                    key={line.id}
-                    line={line}
-                    selected={selectedId === line.id}
-                    readOnly={readOnly}
-                    onSelect={() => setSelectedId(line.id)}
-                    onEdit={editLine}
-                    onAccept={() => acceptLine(line.id)}
-                    onChangeMatch={() => setPicker({ mode: 'change', lineId: line.id })}
-                    onDelete={() => removeLine(line.id)}
-                    onPickAlternative={async (productId) => {
-                      const ok = await save(() => changeQuoteLineMatch(line.id, productId))
-                      if (ok) startTransition(() => router.refresh())
-                    }}
-                  />
-                ))}
-              </div>
-            </section>
-          ) : (
-            <Callout tone="ok" title="Nothing flagged">
-              Every line matched, priced and converted cleanly. Spot-check below if you like.
-            </Callout>
-          )}
+        {error && (
+          <div className="border-b border-line px-6 py-3">
+            <Callout tone="warn">{error}</Callout>
+          </div>
+        )}
 
-          <section className="mt-6">
-            <button
-              type="button"
-              className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-ink hover:text-accent"
-              onClick={() => setShowConfirmed((v) => !v)}
-            >
-              <span>{showConfirmed ? '▾' : '▸'} Confirmed</span>
-              <span className="font-normal text-ink-faint">{pluralize(confirmed.length, 'line')}</span>
-            </button>
-
-            {showConfirmed && (
-              <div className="space-y-2">
-                {confirmed.map((line) => (
-                  <LineCard
-                    key={line.id}
-                    line={line}
-                    selected={selectedId === line.id}
-                    readOnly={readOnly}
-                    compact
-                    onSelect={() => setSelectedId(line.id)}
-                    onEdit={editLine}
-                    onAccept={() => acceptLine(line.id)}
-                    onChangeMatch={() => setPicker({ mode: 'change', lineId: line.id })}
-                    onDelete={() => removeLine(line.id)}
-                    onPickAlternative={async (productId) => {
-                      const ok = await save(() => changeQuoteLineMatch(line.id, productId))
-                      if (ok) startTransition(() => router.refresh())
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {!readOnly && (
-            <div className="mt-6">
-              <Button variant="secondary" size="sm" onClick={() => setPicker({ mode: 'add' })}>
-                Add a line
+        <div className="flex items-center gap-3 border-b border-line px-6 py-3">
+          {triage ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setTriage(null)}>
+                Back to the list
               </Button>
-            </div>
+              <span className="text-xs text-ink-dim">
+                Reviewing {pluralize(triageQueue.length, 'flagged line')}, one at a time.
+              </span>
+            </>
+          ) : (
+            <>
+              <Segmented<Filter>
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'needs', label: 'Needs you', count: counts.flagged },
+                  { value: 'priced', label: 'Priced', count: counts.total - counts.flagged },
+                  { value: 'all', label: 'All', count: counts.total },
+                ]}
+              />
+              {counts.flagged > 0 && !readOnly && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    setTriage({ ids: flaggedInOrder.map((line) => line.id), cursor: 0 })
+                  }
+                >
+                  Review flagged lines
+                </Button>
+              )}
+              <div className="flex-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-[1180px]:hidden"
+                onClick={() => setSourceOpen((v) => !v)}
+              >
+                {sourceOpen ? 'Hide what they sent' : 'What they sent'}
+              </Button>
+              <SaveState state={saveState} />
+              <span className="text-xs text-ink-dim">
+                {filter === 'needs' ? 'Grouped by cause, then line no.' : 'Sorted by line no.'}
+              </span>
+            </>
           )}
-
-          <p className="mt-8 text-xs text-ink-faint">
-            <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move ·{' '}
-            <kbd className="font-mono">a</kbd> accept · <kbd className="font-mono">c</kbd> change match ·{' '}
-            <kbd className="font-mono">?</kbd> show confirmed
-          </p>
         </div>
-      </div>
+
+        {triage ? (
+          <TriagePane
+            queue={triageQueue}
+            sourceByRfqLine={sourceByRfqLine}
+            readOnly={readOnly}
+            cursor={Math.min(triage.cursor, Math.max(triageQueue.length - 1, 0))}
+            onCursor={(cursor) => setTriage((t) => (t ? { ...t, cursor } : t))}
+            onEdit={editLine}
+            onAccept={acceptLine}
+            onSwap={(lineId) => setPicker({ mode: 'change', lineId })}
+            onDelete={removeLine}
+            onExit={() => setTriage(null)}
+          />
+        ) : (
+          <div className="flex">
+            <SourcePane
+              source={source}
+              lines={decorated}
+              open={sourceOpen}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+
+            <div className="min-w-0 flex-1">
+              {visible.length === 0 ? (
+                <div className="px-6 py-16 text-center">
+                  <p className="text-base font-semibold text-ink">
+                    {filter === 'needs' ? 'Nothing needs you' : 'No lines here'}
+                  </p>
+                  <p className="mt-1.5 text-sm text-ink-faint">
+                    {filter === 'needs'
+                      ? 'Every line matched, priced and converted cleanly. Spot-check under “All” if you like.'
+                      : 'Try another filter.'}
+                  </p>
+                </div>
+              ) : filter === 'needs' ? (
+                grouped.map((group) => {
+                  const isCollapsed = collapsed.has(group.key)
+                  const isExpanded = expanded.has(group.key)
+                  const shown = isExpanded ? group.lines : group.lines.slice(0, GROUP_PREVIEW)
+                  const hidden = group.lines.length - shown.length
+
+                  return (
+                    <section key={group.key}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsed((current) => {
+                            const next = new Set(current)
+                            if (next.has(group.key)) next.delete(group.key)
+                            else next.add(group.key)
+                            return next
+                          })
+                        }
+                        className="flex w-full items-center gap-2.5 border-b border-line bg-sunken px-6 py-3.5 text-left transition-colors hover:bg-fill"
+                      >
+                        <i
+                          aria-hidden
+                          className={cn('block size-[7px] rounded-[2px]', SEVERITY_BG[group.severity])}
+                        />
+                        <span className="text-sm font-semibold text-ink">{group.label}</span>
+                        <span className="nums font-mono text-xs font-medium text-ink-dim">
+                          {group.lines.length}
+                        </span>
+                        <div className="flex-1" />
+                        <span className="text-[11px] text-ink-dim">
+                          {isCollapsed ? 'show' : group.hint}
+                        </span>
+                      </button>
+
+                      {!isCollapsed &&
+                        shown.map((line) => (
+                          <LineRow
+                            key={line.id}
+                            line={line}
+                            rawText={rawTextOf(line, sourceByRfqLine)}
+                            selected={selectedId === line.id}
+                            readOnly={readOnly}
+                            onSelect={() => setSelectedId(line.id)}
+                            onEdit={editLine}
+                            onAccept={() => acceptLine(line.id)}
+                            onChangeMatch={() => setPicker({ mode: 'change', lineId: line.id })}
+                            onDelete={() => removeLine(line.id)}
+                            onPickAlternative={async (productId) => {
+                              const ok = await save(() => changeQuoteLineMatch(line.id, productId))
+                              if (ok) startTransition(() => router.refresh())
+                            }}
+                          />
+                        ))}
+
+                      {!isCollapsed && hidden > 0 && (
+                        <div className="border-b border-line-soft px-6 py-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setExpanded((c) => new Set(c).add(group.key))}
+                            className="text-sm font-medium text-ink-faint hover:text-ink"
+                          >
+                            {pluralize(hidden, 'more line')} in this group · show all{' '}
+                            {group.lines.length}
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                  )
+                })
+              ) : (
+                visible.map((line) => (
+                  <LineRow
+                    key={line.id}
+                    line={line}
+                    rawText={rawTextOf(line, sourceByRfqLine)}
+                    selected={selectedId === line.id}
+                    readOnly={readOnly}
+                    onSelect={() => setSelectedId(line.id)}
+                    onEdit={editLine}
+                    onAccept={() => acceptLine(line.id)}
+                    onChangeMatch={() => setPicker({ mode: 'change', lineId: line.id })}
+                    onDelete={() => removeLine(line.id)}
+                    onPickAlternative={async (productId) => {
+                      const ok = await save(() => changeQuoteLineMatch(line.id, productId))
+                      if (ok) startTransition(() => router.refresh())
+                    }}
+                  />
+                ))
+              )}
+
+              <div className="flex items-center gap-4 px-6 py-4">
+                {!readOnly && (
+                  <Button variant="ghost" size="sm" onClick={() => setPicker({ mode: 'add' })}>
+                    + Add a line
+                  </Button>
+                )}
+                <div className="flex-1" />
+                <p className="flex items-center gap-1.5 text-[11px] text-ink-dim">
+                  <KeyCap>j</KeyCap>
+                  <KeyCap>k</KeyCap> move · <KeyCap>a</KeyCap> accept · <KeyCap>c</KeyCap> change match
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {picker && (
         <ProductPicker
@@ -403,31 +481,18 @@ export function ReviewScreen({
           onClose={() => setPicker(null)}
         />
       )}
-    </div>
+    </>
   )
-}
-
-/** Keeps the extended price honest while an edit is still only local. */
-function recompute(line: ReviewLine): ReviewLine {
-  const extended =
-    line.unitPrice === null || line.quotedQty === null
-      ? null
-      : Math.round(line.unitPrice * line.quotedQty * 100) / 100
-  return { ...line, extendedPrice: extended }
 }
 
 // ---------------------------------------------------------------------------
 
-function Header({
-  quote, subtotal, unpriced, flaggedCount, totalCount, saveState, readOnly,
-  isClaimedByMe, isClaimedByOther, onClaim, onApplyMargin,
+function QuoteHeader({
+  quote, counts, subtotal, readOnly, isClaimedByMe, isClaimedByOther, onClaim, onApplyMargin,
 }: {
   quote: ReviewQuote
+  counts: Counts
   subtotal: number
-  unpriced: number
-  flaggedCount: number
-  totalCount: number
-  saveState: 'idle' | 'saving' | 'saved' | 'error'
   readOnly: boolean
   isClaimedByMe: boolean
   isClaimedByOther: boolean
@@ -435,52 +500,48 @@ function Header({
   onApplyMargin: (margin: number) => void
 }) {
   const [margin, setMargin] = useState(quote.globalMarginPercent?.toString() ?? '')
+  const left = dueRelative(quote.dueDate)
+  const late = left?.endsWith('late') || left === 'due today'
 
   return (
-    <header className="sticky top-14 z-10 border-b border-line bg-surface px-5 py-3">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-ink">{quote.jobName ?? 'Untitled job'}</h1>
-            {quote.quoteNumber && <Badge tone="neutral">{quote.quoteNumber}</Badge>}
-            {readOnly && <Badge tone="ok">{quote.status}</Badge>}
+    <div className="border-b border-line bg-sunken px-6 pt-[22px] pb-[18px]">
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center gap-2.5">
+            <h1 className="text-2xl font-semibold tracking-[-.02em] text-ink">
+              {quote.jobName ?? 'Untitled job'}
+            </h1>
+            {quote.quoteNumber && <MonoTag>{quote.quoteNumber}</MonoTag>}
+            {readOnly && <Badge tone="ok">{quote.status.replace('_', ' ')}</Badge>}
           </div>
-          <p className="text-sm text-ink-soft">
+          <div className="text-sm text-ink-faint">
             {quote.customerName ?? 'Unknown contractor'}
-            {quote.dueDate && <span className="text-ink-faint"> · due {quote.dueDate}</span>}
-          </p>
-        </div>
-
-        <div className="flex items-baseline gap-1.5">
-          <span className="nums text-lg font-semibold text-ink">{formatMoney(subtotal)}</span>
-          {unpriced > 0 && (
-            <span className="text-sm text-flag">+ {pluralize(unpriced, 'unpriced line')}</span>
-          )}
-        </div>
-
-        <p className="text-sm text-ink-soft">
-          <span className={flaggedCount > 0 ? 'font-medium text-warn' : 'text-ok'}>
-            {flaggedCount} flagged
-          </span>
-          <span className="text-ink-faint"> of {totalCount}</span>
-        </p>
-
-        <div className="ml-auto flex items-center gap-3">
-          <span
-            className={cn(
-              'text-xs',
-              saveState === 'saving' && 'text-ink-faint',
-              saveState === 'saved' && 'text-ok',
-              saveState === 'error' && 'text-flag',
-              saveState === 'idle' && 'text-transparent',
+            {quote.dueDate && (
+              <>
+                {' · due '}
+                <span className="nums font-mono text-xs text-ink-mid">{quote.dueDate}</span>
+                {left && <span className={cn(late && 'text-review')}> · {left}</span>}
+              </>
             )}
-          >
-            {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Not saved' : '·'}
-          </span>
+          </div>
+        </div>
 
+        <div>
+          <Eyebrow className="mb-1.5 font-normal">Quoted so far</Eyebrow>
+          <div className="flex items-baseline gap-2.5">
+            <span className="nums font-mono text-3xl font-semibold tracking-[-.02em] text-ink">
+              {formatMoney(subtotal)}
+            </span>
+            {counts.unpriced > 0 && (
+              <span className="text-xs font-medium text-unpriced">+{counts.unpriced} unpriced</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-center">
           {!readOnly && (
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="margin" className="text-xs text-ink-soft">
+            <div className="flex items-center overflow-hidden rounded-lg border border-control bg-surface">
+              <label htmlFor="margin" className="pr-1 pl-2.5 text-xs text-ink-faint">
                 Margin
               </label>
               <input
@@ -491,303 +552,419 @@ function Header({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && margin.trim() !== '') onApplyMargin(Number(margin))
                 }}
-                className="nums h-8 w-16 rounded-md border border-line-strong bg-surface px-2 text-sm"
-                placeholder="%"
+                placeholder="18"
+                className="nums w-11 border-0 bg-transparent px-0.5 py-[9px] font-mono text-sm font-medium text-ink outline-none placeholder:text-ink-pale"
               />
-              <Button
-                size="sm"
-                variant="secondary"
+              <span className="pr-2 text-sm text-ink-faint">%</span>
+              <button
+                type="button"
                 disabled={margin.trim() === ''}
                 onClick={() => onApplyMargin(Number(margin))}
+                className="border-l border-line px-3 py-[9px] text-sm font-semibold text-ink transition-colors hover:bg-fill disabled:text-ink-pale"
               >
                 Apply
-              </Button>
+              </button>
             </div>
           )}
 
           {!readOnly && !isClaimedByMe && (
-            <Button size="sm" onClick={() => onClaim(isClaimedByOther)}>
-              {isClaimedByOther ? `Take over from ${quote.claimedByName}` : 'Claim'}
+            <Button onClick={() => onClaim(isClaimedByOther)}>
+              {isClaimedByOther ? `Take over from ${quote.claimedByName}` : 'Claim quote'}
             </Button>
           )}
           {isClaimedByMe && <Badge tone="accent">Yours</Badge>}
         </div>
       </div>
-    </header>
+
+      <Progress counts={counts} />
+    </div>
+  )
+}
+
+/** Priced / needs review / blocked, as a share of the whole quote. */
+function Progress({ counts }: { counts: Counts }) {
+  const total = Math.max(counts.total, 1)
+  const pct = (n: number) => `${(n / total) * 100}%`
+  const legend = [
+    { label: `${counts.priced} priced`, className: 'bg-good-bar', width: pct(counts.priced) },
+    { label: `${counts.review} need review`, className: 'bg-review-bar', width: pct(counts.review) },
+    { label: `${counts.blocked} blocked`, className: 'bg-block-bar', width: pct(counts.blocked) },
+  ]
+
+  return (
+    <div className="mt-[18px] flex items-center gap-3.5">
+      <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-fill-strong">
+        {legend.map((segment) => (
+          <div
+            key={segment.label}
+            className={cn('transition-[width] duration-[240ms] ease-desk', segment.className)}
+            style={{ width: segment.width }}
+          />
+        ))}
+      </div>
+      <div className="flex gap-4 text-xs font-medium text-ink-mid">
+        {legend.map((segment) => (
+          <span key={segment.label} className="flex items-center gap-1.5">
+            <i aria-hidden className={cn('block size-[7px] rounded-[2px]', segment.className)} />
+            {segment.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SaveState({ state }: { state: 'idle' | 'saving' | 'saved' | 'error' }) {
+  if (state === 'idle') return null
+  return (
+    <span
+      className={cn(
+        'text-xs',
+        state === 'saving' && 'text-ink-dim',
+        state === 'saved' && 'text-good',
+        state === 'error' && 'text-block',
+      )}
+    >
+      {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : 'Not saved'}
+    </span>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function OriginalDocument({
-  source, lines, selectedId, onSelect,
+function SourcePane({
+  source, lines, open, selectedId, onSelect,
 }: {
   source: SourceLine[]
-  lines: ReviewLine[]
+  lines: DecoratedLine[]
+  open: boolean
   selectedId: string | null
   onSelect: (id: string) => void
 }) {
   const byRfqLine = useMemo(() => {
-    const map = new Map<string, ReviewLine>()
+    const map = new Map<string, DecoratedLine>()
     for (const line of lines) if (line.rfqLineId) map.set(line.rfqLineId, line)
     return map
   }, [lines])
 
   const selectedRfqLineId = lines.find((line) => line.id === selectedId)?.rfqLineId ?? null
+
   const documents = useMemo(() => {
     const grouped = new Map<string, SourceLine[]>()
     for (const line of source) {
       const key = line.sourceDocument ?? 'Email body'
-      if (!grouped.has(key)) grouped.set(key, [])
-      grouped.get(key)!.push(line)
+      const bucket = grouped.get(key)
+      if (bucket) bucket.push(line)
+      else grouped.set(key, [line])
     }
     return [...grouped.entries()]
   }, [source])
 
   return (
-    <aside className="border-r border-line bg-surface lg:sticky lg:top-[7.5rem] lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto">
-      <div className="px-5 py-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink">What they sent</h2>
+    <aside
+      className={cn(
+        'w-[296px] shrink-0 border-r border-line bg-sunken px-[22px] py-5',
+        open ? 'block' : 'hidden min-[1180px]:block',
+      )}
+    >
+      <Eyebrow className="mb-3.5">What they sent</Eyebrow>
 
-        {documents.length === 0 && <p className="text-sm text-ink-faint">No document lines were stored.</p>}
+      {documents.length === 0 && <p className="text-xs text-ink-dim">No document lines were stored.</p>}
 
-        {documents.map(([document, docLines]) => (
+      {documents.map(([document, docLines]) => {
+        const unreadable = docLines.filter((line) => !line.isParsed && line.parseError)
+        return (
           <div key={document} className="mb-5">
-            <p className="mb-1.5 font-mono text-xs text-ink-faint">{document}</p>
-            <ol className="space-y-0.5">
-              {docLines.map((line) => {
-                const quoteLine = byRfqLine.get(line.id)
-                const isSelected = selectedRfqLineId === line.id
-                return (
-                  <li key={line.id}>
+            <div className="flex items-center gap-2 rounded-[7px] border border-line bg-surface px-2.5 py-2 font-mono text-xs font-medium text-ink">
+              <span className="truncate">{document}</span>
+              <span className="ml-auto shrink-0 font-normal text-ink-dim">{docLines.length} lines</span>
+            </div>
+
+            <div className="mt-2.5 flex flex-col gap-px">
+              {docLines
+                .filter((line) => line.isParsed || !line.parseError)
+                .map((line) => {
+                  const quoteLine = byRfqLine.get(line.id)
+                  const isSelected = selectedRfqLineId === line.id
+                  return (
                     <button
+                      key={line.id}
                       type="button"
+                      disabled={!quoteLine}
                       onClick={() => quoteLine && onSelect(quoteLine.id)}
                       className={cn(
-                        'w-full rounded px-2 py-1 text-left font-mono text-xs leading-relaxed transition-colors',
-                        isSelected ? 'bg-accent-soft text-ink' : 'text-ink-soft hover:bg-canvas',
-                        !line.isParsed && 'text-flag',
+                        'grid grid-cols-[22px_1fr] gap-2 rounded-[5px] px-2.5 py-[5px] text-left transition-colors',
+                        isSelected ? 'bg-fill-strong' : 'hover:bg-fill',
                       )}
                     >
-                      <span className="mr-2 text-ink-faint">{line.lineNumber}</span>
-                      {line.rawText}
-                      {!line.isParsed && line.parseError && (
-                        <span className="mt-0.5 block font-sans text-[11px] text-flag">
-                          {line.parseError}
-                        </span>
-                      )}
+                      <span className="nums text-right font-mono text-2xs text-ink-pale">
+                        {line.lineNumber}
+                      </span>
+                      <span className="font-mono text-xs leading-[1.5] text-ink-soft">
+                        {line.rawText}
+                      </span>
                     </button>
-                  </li>
-                )
-              })}
-            </ol>
+                  )
+                })}
+            </div>
+
+            {unreadable.map((line) => (
+              <div
+                key={line.id}
+                className="mt-4 rounded-lg border border-dashed border-block-edge bg-block-tint/50 px-3 py-[11px]"
+              >
+                <div className="mb-1.5 font-mono text-xs font-medium text-ink">
+                  line {line.lineNumber}
+                </div>
+                <div className="text-xs leading-[1.5] text-block">{line.parseError}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      })}
     </aside>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function LineCard({
-  line, selected, readOnly, compact, onSelect, onEdit, onAccept, onChangeMatch, onDelete, onPickAlternative,
+/** What the contractor actually typed, for lines the matcher could not place. */
+function rawTextOf(line: DecoratedLine, source: Map<string, SourceLine>): string | null {
+  return (line.rfqLineId ? source.get(line.rfqLineId)?.rawText : null) ?? null
+}
+
+function LineRow({
+  line, rawText, selected, readOnly, onSelect, onEdit, onAccept, onChangeMatch, onDelete, onPickAlternative,
 }: {
-  line: ReviewLine
+  line: DecoratedLine
+  rawText: string | null
   selected: boolean
   readOnly: boolean
-  compact?: boolean
   onSelect: () => void
-  onEdit: (id: string, patch: Partial<ReviewLine>, remote: Parameters<typeof updateQuoteLine>[0]) => void
+  onEdit: EditHandler
   onAccept: () => void
   onChangeMatch: () => void
   onDelete: () => void
   onPickAlternative: (productId: string) => void
 }) {
   const [showWhy, setShowWhy] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // A line the parser marked "no price" cannot be accepted with the box empty:
+  // accepting it would quietly leave the total short.
+  const acceptBlocked = line.priceMissing && line.unitPrice === null
 
   return (
     <article
       onClick={onSelect}
-      className={cn(
-        'rounded-lg border bg-surface transition-colors',
-        selected ? 'border-accent ring-1 ring-accent/20' : 'border-line hover:border-line-strong',
-      )}
+      className="grid grid-cols-[4px_1fr] border-b border-line-soft"
     >
-      <div className={cn('px-3', compact ? 'py-2' : 'py-3')}>
+      <div className={cn(EDGE[line.priority])} />
+      <div
+        className={cn(
+          'px-6 pt-4 pb-[15px] transition-colors',
+          selected ? 'bg-fill' : 'hover:bg-[rgba(20,22,28,.03)]',
+        )}
+      >
         <div className="flex items-start gap-3">
-          <span className="nums mt-0.5 w-6 shrink-0 text-xs text-ink-faint">{line.lineNumber}</span>
+          <span className="nums w-[22px] shrink-0 pt-0.5 font-mono text-[11px] font-medium text-ink-ghost">
+            {line.lineNumber}
+          </span>
 
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {line.productId ? (
-                <>
-                  <span className="font-mono text-xs text-ink-soft">{line.sku}</span>
-                  <span className="text-sm font-medium text-ink">{line.productDescription}</span>
-                </>
-              ) : (
-                <span className="text-sm font-medium text-flag">No product matched</span>
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+              {line.sku && (
+                <span className="font-mono text-[11px] font-medium text-ink-faint">{line.sku}</span>
               )}
-              <Badge tone={BAND_TONE[line.matchBand]}>
-                {line.matchBand === 'no_match' ? 'no match' : line.matchBand}
-              </Badge>
-              {line.isSubstitution && <Badge tone="warn">substitution</Badge>}
-              {line.isManual && <Badge tone="neutral">added</Badge>}
+              <span
+                className={cn(
+                  'text-md font-semibold tracking-[-.005em]',
+                  line.productId ? 'text-ink' : 'text-block',
+                )}
+              >
+                {line.productDescription ?? rawText ?? 'No product matched'}
+              </span>
+              {line.isFlagged && (
+                <span
+                  className={cn(
+                    'rounded-sm px-1.5 py-1 text-micro font-semibold tracking-[.07em] uppercase',
+                    PILL[line.priority],
+                  )}
+                >
+                  {line.priority}
+                </span>
+              )}
+              {line.isManual && <Badge tone="quiet">added</Badge>}
             </div>
 
-            {line.isSubstitution && line.substitutedForText && (
-              <p className="mt-0.5 text-xs text-warn">
-                They asked for {line.substitutedForText}
-              </p>
-            )}
+            <IssueList line={line} />
 
-            {line.flagReasons.length > 0 && (
-              <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {line.flagReasons.map((reason) => (
-                  <li key={reason} className="text-xs text-warn">
-                    {FLAG_LABELS[reason] ?? reason}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {line.uomConversionNote && (
-              <p className="mt-1 text-xs text-ink-soft">{line.uomConversionNote}</p>
+            {line.explanation && (
+              <div className="mt-[7px] max-w-[600px] text-sm text-pretty text-ink-mid">
+                {line.explanation}
+              </div>
             )}
           </div>
 
-          <div className="shrink-0 text-right">
-            <p className="nums text-sm font-medium text-ink">{formatMoney(line.extendedPrice)}</p>
-            {line.lineMarginPercent !== null && (
-              <p className="nums text-xs text-ink-faint">{line.lineMarginPercent}% margin</p>
-            )}
+          <div className="shrink-0">
+            <Money line={line} />
           </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 pl-9">
-          <Field
-            label="Qty"
-            value={line.quotedQty === null ? '' : String(line.quotedQty)}
-            width="w-20"
-            disabled={readOnly}
-            onCommit={(value) => {
-              const qty = value === '' ? null : Number(value)
-              if (qty !== null && !Number.isFinite(qty)) return
-              onEdit(line.id, { quotedQty: qty }, { quoteLineId: line.id, quotedQty: qty })
-            }}
-          />
-          <Field
-            label="Unit"
-            value={line.quotedUom ?? ''}
-            width="w-16"
-            disabled={readOnly}
-            onCommit={(value) =>
-              onEdit(line.id, { quotedUom: value || null }, { quoteLineId: line.id, quotedUom: value || null })
-            }
-          />
-          <Field
-            label="Price"
-            value={line.unitPrice === null ? '' : String(line.unitPrice)}
-            width="w-24"
-            disabled={readOnly}
-            onCommit={(value) => {
-              const price = value === '' ? null : Number(value)
-              if (price !== null && !Number.isFinite(price)) return
-              onEdit(line.id, { unitPrice: price }, { quoteLineId: line.id, unitPrice: price })
-            }}
-          />
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3 pl-[34px]">
+          <div className="flex items-center gap-3.5">
+            <LineFields line={line} variant="underline" readOnly={readOnly} onEdit={onEdit} />
+          </div>
 
-          {line.requestedQty !== null &&
-            (line.requestedQty !== line.quotedQty || line.requestedUom !== line.quotedUom) && (
-              <span className="nums text-xs text-ink-faint">
-                asked for {formatQty(line.requestedQty)} {line.requestedUom}
-              </span>
-            )}
+          <LineContext line={line} />
 
-          {line.onHandQty !== null && (
-            <span className={cn('nums text-xs', line.stockShortfall ? 'text-flag' : 'text-ink-faint')}>
-              {formatQty(line.onHandQty)} on hand
-              {line.leadTimeDays ? ` · ${line.leadTimeDays}d lead` : ''}
-            </span>
-          )}
+          <div className="flex-1" />
 
           <button
             type="button"
-            className="text-xs text-ink-faint underline-offset-2 hover:text-ink hover:underline"
+            className="text-xs font-medium text-ink-faint underline decoration-dotted underline-offset-[3px] hover:text-ink"
             onClick={(e) => {
               e.stopPropagation()
               setShowWhy((v) => !v)
             }}
           >
-            why
+            why?
           </button>
 
           {!readOnly && (
-            <div className="ml-auto flex items-center gap-1.5">
+            <>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-label="More actions"
+                  aria-expanded={menuOpen}
+                  className="rounded-[7px] px-2.5 py-2 text-sm font-medium text-ink-faint transition-colors hover:bg-fill-strong hover:text-ink"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenuOpen((v) => !v)
+                  }}
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <div
+                    className="absolute right-0 bottom-full z-20 mb-1 w-52 rounded-lg border border-line bg-surface p-1 shadow-card"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <p className="px-2.5 py-2 text-xs text-ink-faint">
+                      Remove line {line.lineNumber} from the quote?
+                    </p>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setMenuOpen(false)}>
+                        Keep it
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={onDelete}>
+                        Delete line
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onChangeMatch()
+                }}
+              >
+                Change
+              </Button>
+
               {line.isFlagged && (
-                <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onAccept() }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={acceptBlocked}
+                  title={acceptBlocked ? 'Enter a unit price first.' : undefined}
+                  className="px-4"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAccept()
+                  }}
+                >
                   Accept
                 </Button>
               )}
-              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onChangeMatch() }}>
-                Change
-              </Button>
-              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onDelete() }}>
-                Delete
-              </Button>
-            </div>
+            </>
           )}
         </div>
 
         {showWhy && (
-          <div className="mt-2 ml-9 rounded-md bg-canvas px-3 py-2 text-xs text-ink-soft">
-            <p>
-              <span className="font-medium text-ink">Match:</span> {line.matchReasoning ?? '—'}
-              {line.matchConfidence !== null && (
-                <span className="text-ink-faint"> ({Math.round(line.matchConfidence * 100)}%)</span>
-              )}
-            </p>
-            <p className="mt-0.5">
-              <span className="font-medium text-ink">Price:</span>{' '}
-              {line.priceMissing ? 'No price could be derived' : describePrice(line)}
-            </p>
-            {line.uomConversionNote && (
-              <p className="mt-0.5">
-                <span className="font-medium text-ink">Quantity:</span> {line.uomConversionNote}
-              </p>
-            )}
-
-            {line.alternatives.length > 0 && (
-              <div className="mt-2">
-                <p className="font-medium text-ink">Other candidates</p>
-                <ul className="mt-1 space-y-1">
-                  {line.alternatives.map((alt) => (
-                    <li key={alt.product_id} className="flex items-center gap-2">
-                      <span className="font-mono">{alt.sku}</span>
-                      <span className="truncate text-ink-faint">{alt.description}</span>
-                      <span className="nums text-ink-faint">{Math.round(alt.confidence * 100)}%</span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          className="ml-auto shrink-0 text-accent hover:underline"
-                          onClick={(e) => { e.stopPropagation(); onPickAlternative(alt.product_id) }}
-                        >
-                          use this
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          <WhyPanel line={line} readOnly={readOnly} onPickAlternative={onPickAlternative} />
         )}
       </div>
     </article>
   )
 }
 
-function describePrice(line: ReviewLine): string {
+/** The parser's reasoning: which rule fired, how sure it was, what else fit. */
+function WhyPanel({
+  line, readOnly, onPickAlternative,
+}: {
+  line: DecoratedLine
+  readOnly: boolean
+  onPickAlternative: (productId: string) => void
+}) {
+  return (
+    <div className="mt-3 ml-[34px] rounded-[10px] border border-line bg-sunken px-4 py-3 text-xs text-ink-mid">
+      <dl className="grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5">
+        <dt className="font-medium text-ink">Match</dt>
+        <dd>
+          {line.matchReasoning ?? '—'}
+          {line.matchConfidence !== null && (
+            <span className="nums text-ink-dim"> ({Math.round(line.matchConfidence * 100)}%)</span>
+          )}
+        </dd>
+        <dt className="font-medium text-ink">Price</dt>
+        <dd>{line.priceMissing ? 'No price could be derived' : describePrice(line)}</dd>
+        {line.uomConversionNote && (
+          <>
+            <dt className="font-medium text-ink">Quantity</dt>
+            <dd>{line.uomConversionNote}</dd>
+          </>
+        )}
+      </dl>
+
+      {line.alternatives.length > 0 && (
+        <div className="mt-3 border-t border-line pt-3">
+          <Eyebrow className="mb-2">Other candidates</Eyebrow>
+          <ul className="space-y-1.5">
+            {line.alternatives.map((alt) => (
+              <li key={alt.product_id} className="flex items-center gap-3">
+                <span className="w-28 shrink-0 truncate font-mono text-ink-faint">{alt.sku}</span>
+                <span className="min-w-0 flex-1 truncate">{alt.description}</span>
+                <span className="nums font-mono text-ink-dim">
+                  {Math.round(alt.confidence * 100)}%
+                </span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-ink underline underline-offset-2"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPickAlternative(alt.product_id)
+                    }}
+                  >
+                    use this
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function describePrice(line: DecoratedLine): string {
   const source =
     line.priceSource === 'list_no_rule' ? 'List price — no customer rule found'
     : line.priceSource === 'manual' ? 'Set by hand'
@@ -795,50 +972,4 @@ function describePrice(line: ReviewLine): string {
     : 'Unknown'
   const list = line.listPrice !== null ? ` · list ${formatMoney(line.listPrice)}` : ''
   return `${source}${list}`
-}
-
-/** An input that only reports upward when the rep is done with it. */
-function Field({
-  label, value, width, disabled, onCommit,
-}: {
-  label: string
-  value: string
-  width: string
-  disabled?: boolean
-  onCommit: (value: string) => void
-}) {
-  const [draft, setDraft] = useState(value)
-  const [lastValue, setLastValue] = useState(value)
-
-  // A saved edit comes back down as a new `value`; the draft follows it.
-  if (value !== lastValue) {
-    setLastValue(value)
-    setDraft(value)
-  }
-
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-ink-soft">
-      {label}
-      <input
-        value={draft}
-        disabled={disabled}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => draft !== value && onCommit(draft)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.currentTarget.blur()
-          } else if (e.key === 'Escape') {
-            setDraft(value)
-            e.currentTarget.blur()
-          }
-        }}
-        className={cn(
-          'nums h-7 rounded border border-line-strong bg-surface px-1.5 text-xs text-ink',
-          'disabled:bg-canvas disabled:text-ink-faint',
-          width,
-        )}
-      />
-    </label>
-  )
 }

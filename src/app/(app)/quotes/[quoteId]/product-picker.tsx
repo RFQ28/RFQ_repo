@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { searchProducts, type ProductSearchResult } from './actions'
+import { Eyebrow, KeyCap } from '@/components/ui'
 import { cn, formatMoney, formatQty } from '@/lib/utils'
 
 /**
@@ -64,35 +65,35 @@ export function ProductPicker({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-ink/20 px-4 pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-ink/25 px-4 pt-[12vh]"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-surface shadow-xl"
+        className="w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-surface shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-line px-4 py-3">
-          <p className="mb-2 text-sm font-medium text-ink">{title}</p>
+        <div className="border-b border-line bg-sunken px-4 py-3.5">
+          <Eyebrow className="mb-2.5">{title}</Eyebrow>
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="SKU, part number, or description"
-            className="h-9 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+            className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2.5 text-base text-ink placeholder:text-ink-dim focus:border-ink focus:shadow-[0_0_0_3px_rgba(20,22,28,.08)] focus:outline-none"
           />
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto">
           {query.trim().length < 2 ? (
-            <p className="px-4 py-6 text-center text-sm text-ink-faint">
+            <p className="px-4 py-8 text-center text-sm text-ink-dim">
               Type at least two characters.
             </p>
           ) : searching && visible.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-ink-faint">Searching…</p>
+            <p className="px-4 py-8 text-center text-sm text-ink-dim">Searching…</p>
           ) : visible.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-ink-faint">
+            <p className="px-4 py-8 text-center text-sm text-ink-dim">
               Nothing in the catalogue matches that.
             </p>
           ) : (
@@ -104,24 +105,28 @@ export function ProductPicker({
                     onMouseEnter={() => setHighlighted(index)}
                     onClick={() => onPick(product.id)}
                     className={cn(
-                      'flex w-full items-center gap-3 px-4 py-2 text-left',
-                      index === highlighted ? 'bg-accent-soft' : 'hover:bg-canvas',
+                      'flex w-full items-center gap-3 border-b border-line-soft px-4 py-2.5 text-left transition-colors',
+                      index === highlighted ? 'bg-fill-strong' : 'hover:bg-fill',
                     )}
                   >
-                    <span className="w-32 shrink-0 truncate font-mono text-xs text-ink-soft">
+                    <span className="w-32 shrink-0 truncate font-mono text-xs font-medium text-ink-faint">
                       {product.sku}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-ink">{product.description}</span>
+                      <span className="block truncate text-base font-medium text-ink">
+                        {product.description}
+                      </span>
                       {(product.manufacturer || product.manufacturerPartNumber) && (
-                        <span className="block truncate text-xs text-ink-faint">
+                        <span className="block truncate text-xs text-ink-dim">
                           {[product.manufacturer, product.manufacturerPartNumber].filter(Boolean).join(' · ')}
                         </span>
                       )}
                     </span>
-                    <span className="nums shrink-0 text-right text-xs">
-                      <span className="block text-ink">{formatMoney(product.listPrice)}</span>
-                      <span className="block text-ink-faint">
+                    <span className="nums shrink-0 text-right font-mono">
+                      <span className="block text-sm font-medium text-ink">
+                        {formatMoney(product.listPrice)}
+                      </span>
+                      <span className="block text-xs text-ink-dim">
                         {product.onHand === null ? '—' : `${formatQty(product.onHand)} ${product.uom}`}
                       </span>
                     </span>
@@ -132,9 +137,9 @@ export function ProductPicker({
           )}
         </div>
 
-        <div className="border-t border-line px-4 py-2 text-xs text-ink-faint">
-          <kbd className="font-mono">↑↓</kbd> move · <kbd className="font-mono">enter</kbd> choose ·{' '}
-          <kbd className="font-mono">esc</kbd> close
+        <div className="flex items-center gap-1.5 border-t border-line bg-sunken px-4 py-2.5 text-[11px] text-ink-dim">
+          <KeyCap>↑</KeyCap>
+          <KeyCap>↓</KeyCap> move · <KeyCap>enter</KeyCap> choose · <KeyCap>esc</KeyCap> close
         </div>
       </div>
     </div>

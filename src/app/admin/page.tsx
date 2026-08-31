@@ -58,7 +58,7 @@ export default async function AdminPage() {
             ) : (
               <Card className="overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="border-b border-line bg-canvas text-left text-xs font-medium tracking-wide text-ink-faint uppercase">
+                  <thead className="border-b border-line bg-sunken text-left text-micro font-medium tracking-[.13em] text-ink-dim uppercase">
                     <tr>
                       <th className="px-4 py-2.5">Distributor</th>
                       <th className="px-4 py-2.5">Users</th>

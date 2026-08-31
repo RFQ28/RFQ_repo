@@ -128,7 +128,7 @@ export function MailboxForms({
             </div>
 
             {forwardingAddress && (
-              <div className="rounded-md bg-canvas px-3 py-2">
+              <div className="rounded-lg bg-sunken px-3 py-2">
                 <p className="text-xs text-ink-faint">Forward to</p>
                 <p className="font-mono text-sm text-ink">{forwardingAddress}</p>
               </div>

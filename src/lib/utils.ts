@@ -1,5 +1,15 @@
 import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+/**
+ * Our type scale adds three sizes on top of Tailwind's defaults. tailwind-merge
+ * only knows the defaults, so it reads `text-micro` as a *colour* and lets a
+ * later `text-ink-dim` in the same `cn()` delete it — which silently returned
+ * eyebrows and badges to 16px. Teaching it the three names fixes that.
+ */
+const twMerge = extendTailwindMerge({
+  extend: { classGroups: { 'font-size': [{ text: ['micro', '2xs', 'md'] }] } },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

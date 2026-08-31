@@ -25,7 +25,7 @@ retried and never reported.
 | 2 | Graph mailbox, forwarding fallback, classification, dedup, revisions | **Built** — OAuth, subscription, webhook, renewal with catch-up sweep, dedup, revision detection, customer identification. Needs an Entra app registration to run |
 | 3 | Document parsing, line extraction, matching, embeddings | **Partial** — text and spreadsheet extraction, matching and confidence built; PDF, OCR and Word not; embeddings need a provider |
 | 4 | Pricing engine, UOM conversion, stock check, substitutions | **Built** |
-| 5 | Review screen | **Built** |
+| 5 | Review screen | **Built** — rebuilt against the Quote Desk redesign: severity-only colour, tabular mono numerals, lines grouped by cause, plus a keyboard-first triage mode |
 | 6 | PDF, exports, thread reply, correction capture, learning loop | **Partial** — correction capture and the learning loop are wired; PDF, exports and notifications are not |
 | 7 | Owner weekly summary, stale alert, won/lost, admin tooling | Not started |
 

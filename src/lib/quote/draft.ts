@@ -310,7 +310,7 @@ export const FLAG_LABELS: Record<string, string> = {
 }
 
 /** Everything the rep must look at, in the order they should look at it. */
-const FLAG_ORDER = [
+export const FLAG_ORDER = [
   'unparsed', 'no_match', 'price_missing', 'uom_unresolved', 'spec_conflict',
   'stock_shortfall', 'low_confidence', 'ambiguous', 'substitution',
   'below_cost', 'uom_converted', 'list_price_no_rule', 'non_stock',

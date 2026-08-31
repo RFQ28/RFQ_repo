@@ -2,49 +2,127 @@
 
 /*
   A desk tool. Dense, legible at a glance, and quiet enough to sit next to
-  Outlook all day. Colour carries one job only: it marks what needs the rep's
-  attention (6.9), so it is spent sparingly everywhere else.
+  Outlook all day.
+
+  Two rules carry the whole design:
+
+  1. Colour means severity and nothing else. Blocked is red, needs-review is
+     amber, healthy is green, and every other pixel is a grey. There is no
+     decorative accent, so the four red edges on a 26-line quote are the only
+     four things that pull the eye.
+  2. Every number is mono and tabular, so quantities and money line up into
+     columns the rep can scan vertically without reading.
 */
 
 @theme {
-  --color-canvas: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-line: #e3e6ea;
-  --color-line-strong: #cbd1d9;
+  /* Surfaces -------------------------------------------------------------- */
+  --color-canvas: #eeece7;        /* page, behind the card */
+  --color-surface: #ffffff;       /* card, rows */
+  --color-sunken: #fbfaf8;        /* header band, side pane, action bar */
 
-  --color-ink: #14181f;
-  --color-ink-soft: #4b5563;
-  --color-ink-faint: #8b939f;
+  /* Ink, darkest to palest ------------------------------------------------ */
+  --color-ink: #16181d;           /* titles, values, primary button */
+  --color-ink-soft: #5b6070;      /* explanations */
+  --color-ink-mid: #6b7080;       /* secondary labels, ghost button text */
+  --color-ink-faint: #8a8f9c;     /* SKUs, metadata */
+  --color-ink-dim: #9aa0ad;       /* eyebrows, field labels */
+  --color-ink-ghost: #b6bac4;     /* line numbers */
+  --color-ink-pale: #c3c7d0;      /* empty values */
 
-  --color-accent: #1a56db;
-  --color-accent-soft: #eef2ff;
+  /* Hairlines and fills. Depth comes from the sunken bands, not from borders. */
+  --color-line: rgba(20, 22, 28, 0.08);         /* band dividers */
+  --color-line-soft: rgba(20, 22, 28, 0.06);    /* row dividers */
+  --color-control: rgba(20, 22, 28, 0.14);      /* inputs */
+  --color-line-strong: rgba(20, 22, 28, 0.16);  /* secondary buttons */
+  --color-fill: rgba(20, 22, 28, 0.05);         /* segmented track, hover */
+  --color-fill-strong: rgba(20, 22, 28, 0.07);  /* pills, selected rows */
 
-  --color-flag: #b42318;
-  --color-flag-soft: #fef3f2;
-  --color-warn: #b54708;
-  --color-warn-soft: #fffaeb;
-  --color-ok: #067647;
-  --color-ok-soft: #ecfdf3;
+  /* Severity. The only colour in the product. ----------------------------- */
+  --color-block: oklch(0.55 0.17 22);
+  --color-block-bar: oklch(0.58 0.18 22);
+  --color-block-tint: oklch(0.55 0.17 22 / 0.1);
+  --color-block-edge: oklch(0.55 0.17 22 / 0.24);
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --color-review: oklch(0.55 0.12 62);
+  --color-review-bar: oklch(0.74 0.14 72);
+  --color-review-tint: oklch(0.55 0.12 62 / 0.12);
+  --color-review-edge: oklch(0.55 0.12 62 / 0.25);
+
+  --color-good: oklch(0.52 0.11 155);
+  --color-good-bar: oklch(0.62 0.10 155);
+  --color-good-tint: oklch(0.52 0.11 155 / 0.1);
+
+  --color-unpriced: #b0761c;      /* "+4 unpriced" — a warning, not a failure */
+
+  /* Aliases kept so the settings and admin screens stay on the same palette.
+     There is deliberately no accent hue: the primary action is ink. */
+  --color-accent: #16181d;
+  --color-accent-soft: rgba(20, 22, 28, 0.06);
+  --color-flag: oklch(0.55 0.17 22);
+  --color-flag-soft: oklch(0.55 0.17 22 / 0.07);
+  --color-warn: oklch(0.55 0.12 62);
+  --color-warn-soft: oklch(0.55 0.12 62 / 0.08);
+  --color-ok: oklch(0.52 0.11 155);
+  --color-ok-soft: oklch(0.52 0.11 155 / 0.08);
+
+  /* Type. Body copy never goes below 11.5px; eyebrows may, because they are
+     uppercase and tracked. */
+  --text-micro: 9.5px;
+  --text-micro--line-height: 1;
+  --text-2xs: 10.5px;
+  --text-2xs--line-height: 1.4;
+  --text-xs: 11.5px;
+  --text-xs--line-height: 1.5;
+  --text-sm: 12.5px;
+  --text-sm--line-height: 1.5;
+  --text-base: 13.5px;
+  --text-base--line-height: 1.5;
+  --text-md: 14.5px;
+  --text-md--line-height: 1.35;
+  --text-lg: 15px;
+  --text-lg--line-height: 1.3;
+  --text-xl: 17px;
+  --text-xl--line-height: 1.25;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 1.2;
+  --text-3xl: 26px;
+  --text-3xl--line-height: 1.1;
+
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 12px 32px -18px rgba(0, 0, 0, 0.25);
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.04);
+
+  --ease-desk: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
-body {
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+    Reps drive this from the keyboard all day, so focus must always be obvious.
+    Kept in the base layer so a control with its own focus treatment — the
+    underline fields, whose whole point is not to look like boxes — can opt out
+    with `outline-none` and still show focus its own way.
+  */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 1px;
+    border-radius: 2px;
+  }
 }
 
-/* Reps drive this from the keyboard, so focus must always be obvious. */
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-  border-radius: 2px;
-}
-
-/* Tabular figures everywhere a quantity or price is shown. */
-.nums {
-  font-variant-numeric: tabular-nums;
+@layer utilities {
+  /* Tabular figures everywhere a quantity or price is shown. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
 }

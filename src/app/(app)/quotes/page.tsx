@@ -2,17 +2,17 @@ import Link from 'next/link'
 import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { Badge, Card, EmptyState, PageHeader } from '@/components/ui'
-import { formatMoney } from '@/lib/utils'
+import { cn, formatMoney } from '@/lib/utils'
 import type { QuoteStatus } from '@/lib/db/types'
 
-const STATUS_TONE: Record<QuoteStatus, 'neutral' | 'ok' | 'warn' | 'flag' | 'accent'> = {
+const STATUS_TONE: Record<QuoteStatus, 'neutral' | 'quiet' | 'ok' | 'warn' | 'flag' | 'accent'> = {
   draft: 'accent',
   in_review: 'warn',
   sent: 'ok',
   won: 'ok',
   lost: 'flag',
-  no_response: 'neutral',
-  cancelled: 'neutral',
+  no_response: 'quiet',
+  cancelled: 'quiet',
 }
 
 export default async function QuotesPage() {
@@ -42,16 +42,16 @@ export default async function QuotesPage() {
           <p>A quote appears here as soon as an RFQ has been matched and priced.</p>
         </EmptyState>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-line bg-canvas text-left text-xs font-medium tracking-wide text-ink-faint uppercase">
-              <tr>
-                <th className="px-4 py-2.5">Quote</th>
-                <th className="px-4 py-2.5">Job</th>
-                <th className="px-4 py-2.5">Contractor</th>
-                <th className="px-4 py-2.5 text-right">Value</th>
-                <th className="px-4 py-2.5">With</th>
-                <th className="px-4 py-2.5">Status</th>
+        <Card>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-line bg-sunken text-left">
+                <Th>Quote</Th>
+                <Th>Job</Th>
+                <Th>Contractor</Th>
+                <Th align="right">Value</Th>
+                <Th>With</Th>
+                <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
@@ -63,23 +63,38 @@ export default async function QuotesPage() {
                 } | null
 
                 return (
-                  <tr key={quote.id} className="border-b border-line last:border-0 hover:bg-canvas">
-                    <td className="px-4 py-2.5">
-                      <Link href={`/quotes/${quote.id}`} className="font-mono text-xs text-accent hover:underline">
+                  <tr
+                    key={quote.id}
+                    className="border-b border-line-soft transition-colors last:border-0 hover:bg-fill"
+                  >
+                    <td className="px-5 py-3">
+                      <Link
+                        href={`/quotes/${quote.id}`}
+                        className="font-mono text-xs font-medium text-ink-mid underline-offset-2 hover:text-ink hover:underline"
+                      >
                         {quote.quote_number ?? 'draft'}
                       </Link>
                     </td>
-                    <td className="px-4 py-2.5 font-medium text-ink">{rfq?.job_name ?? 'Untitled'}</td>
-                    <td className="px-4 py-2.5 text-ink-soft">
+                    <td className="px-5 py-3">
+                      <Link
+                        href={`/quotes/${quote.id}`}
+                        className="text-base font-semibold text-ink underline-offset-2 hover:underline"
+                      >
+                        {rfq?.job_name ?? 'Untitled'}
+                      </Link>
+                    </td>
+                    <td className="px-5 py-3 text-sm text-ink-mid">
                       {(quote.customers as unknown as { name: string } | null)?.name ?? '—'}
                     </td>
-                    <td className="nums px-4 py-2.5 text-right text-ink">
+                    <td className="nums px-5 py-3 text-right font-mono text-base font-semibold text-ink">
                       {formatMoney(quote.subtotal === null ? null : Number(quote.subtotal))}
                     </td>
-                    <td className="px-4 py-2.5 text-ink-faint">
-                      {rfq?.users?.full_name ?? rfq?.users?.email ?? '—'}
+                    <td className="px-5 py-3 text-sm text-ink-faint">
+                      {rfq?.users?.full_name ?? rfq?.users?.email ?? (
+                        <span className="text-ink-pale">unclaimed</span>
+                      )}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-5 py-3">
                       <Badge tone={STATUS_TONE[quote.status]}>{quote.status.replace('_', ' ')}</Badge>
                     </td>
                   </tr>
@@ -90,5 +105,18 @@ export default async function QuotesPage() {
         </Card>
       )}
     </>
+  )
+}
+
+function Th({ children, align }: { children: React.ReactNode; align?: 'right' }) {
+  return (
+    <th
+      className={cn(
+        'px-5 py-3 text-micro font-medium tracking-[.13em] text-ink-dim uppercase',
+        align === 'right' && 'text-right',
+      )}
+    >
+      {children}
+    </th>
   )
 }

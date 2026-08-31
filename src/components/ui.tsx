@@ -1,22 +1,32 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
+/**
+ * One primary action per view, and it is ink — there is no accent hue to spend.
+ * `secondary` inverts to ink on hover so the row's commit action still feels
+ * like the heaviest thing on the row without shouting from across the screen.
+ */
 export function Button({
   variant = 'primary',
   size = 'md',
   className,
   ...props
-}: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; size?: 'sm' | 'md' }) {
+}: ComponentProps<'button'> & {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
+  size?: 'sm' | 'md'
+}) {
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-3 text-sm' : 'h-9 px-4 text-sm',
-        variant === 'primary' && 'bg-accent text-white hover:bg-accent/90',
-        variant === 'secondary' && 'border border-line-strong bg-surface text-ink hover:bg-canvas',
-        variant === 'ghost' && 'text-ink-soft hover:bg-canvas hover:text-ink',
-        variant === 'danger' && 'bg-flag text-white hover:bg-flag/90',
+        'inline-flex items-center justify-center gap-2 rounded-[7px] transition-colors',
+        'disabled:cursor-not-allowed disabled:opacity-40',
+        size === 'sm' ? 'px-3 py-2 text-sm' : 'px-5 py-2.5 text-base',
+        variant === 'primary' &&
+          'bg-ink font-semibold text-white shadow-primary hover:bg-[#2a2d35]',
+        variant === 'secondary' &&
+          'border border-line-strong bg-surface font-semibold text-ink shadow-control hover:border-ink hover:bg-ink hover:text-white',
+        variant === 'ghost' && 'font-medium text-ink-mid hover:bg-fill-strong hover:text-ink',
+        variant === 'danger' && 'font-medium text-block hover:bg-block-tint',
         className,
       )}
       {...props}
@@ -28,8 +38,8 @@ export function Input({ className, ...props }: ComponentProps<'input'>) {
   return (
     <input
       className={cn(
-        'h-9 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink',
-        'placeholder:text-ink-faint focus:border-accent focus:outline-none',
+        'w-full rounded-lg border border-line-strong bg-surface px-3 py-2.5 text-base text-ink',
+        'placeholder:text-ink-dim focus:border-ink focus:shadow-[0_0_0_3px_rgba(20,22,28,.08)] focus:outline-none',
         className,
       )}
       {...props}
@@ -41,8 +51,8 @@ export function Select({ className, ...props }: ComponentProps<'select'>) {
   return (
     <select
       className={cn(
-        'h-9 w-full rounded-md border border-line-strong bg-surface px-2 text-sm text-ink',
-        'focus:border-accent focus:outline-none',
+        'w-full rounded-lg border border-line-strong bg-surface px-2 py-2.5 text-base text-ink',
+        'focus:border-ink focus:outline-none',
         className,
       )}
       {...props}
@@ -51,15 +61,47 @@ export function Select({ className, ...props }: ComponentProps<'select'>) {
 }
 
 export function Label({ className, ...props }: ComponentProps<'label'>) {
-  return <label className={cn('block text-sm font-medium text-ink-soft', className)} {...props} />
+  return <label className={cn('block text-sm font-medium text-ink-mid', className)} {...props} />
 }
 
 export function Card({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
-      className={cn('rounded-lg border border-line bg-surface', className)}
+      className={cn('overflow-hidden rounded-xl border border-line bg-surface shadow-card', className)}
       {...props}
     />
+  )
+}
+
+/** Uppercase, tracked, and small enough to disappear until you look for it. */
+export function Eyebrow({ className, ...props }: ComponentProps<'div'>) {
+  return (
+    <div
+      className={cn('text-2xs font-semibold tracking-[.09em] text-ink-dim uppercase', className)}
+      {...props}
+    />
+  )
+}
+
+/** A quote number, an import id — an identifier you might read aloud. */
+export function MonoTag({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'shrink-0 rounded-[5px] bg-fill-strong px-[7px] py-[5px] font-mono text-2xs font-medium whitespace-nowrap text-ink-mid',
+        className,
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function KeyCap({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="rounded-sm border border-control border-b-2 bg-surface px-[5px] py-1 font-mono text-[10px] font-medium text-ink">
+      {children}
+    </kbd>
   )
 }
 
@@ -75,8 +117,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex items-start justify-between gap-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">{title}</h1>
-        {description && <p className="mt-1 max-w-2xl text-sm text-ink-soft">{description}</p>}
+        <h1 className="text-2xl font-semibold tracking-[-.02em] text-ink">{title}</h1>
+        {description && <p className="mt-1.5 max-w-2xl text-sm text-ink-faint">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
@@ -95,15 +137,15 @@ export function Callout({
   return (
     <div
       className={cn(
-        'rounded-md border px-3 py-2.5 text-sm',
-        tone === 'info' && 'border-line bg-accent-soft text-ink',
-        tone === 'warn' && 'border-warn/25 bg-warn-soft text-warn',
-        tone === 'flag' && 'border-flag/25 bg-flag-soft text-flag',
-        tone === 'ok' && 'border-ok/25 bg-ok-soft text-ok',
+        'rounded-[10px] border px-4 py-3 text-sm',
+        tone === 'info' && 'border-line bg-sunken text-ink-soft',
+        tone === 'warn' && 'border-review-edge bg-warn-soft text-review',
+        tone === 'flag' && 'border-block-edge bg-flag-soft text-block',
+        tone === 'ok' && 'border-good/25 bg-ok-soft text-good',
       )}
     >
-      {title && <p className="font-medium">{title}</p>}
-      <div className={cn(title && 'mt-0.5')}>{children}</div>
+      {title && <p className="font-semibold">{title}</p>}
+      <div className={cn(title && 'mt-1 text-ink-soft')}>{children}</div>
     </div>
   )
 }
@@ -112,18 +154,19 @@ export function Badge({
   tone = 'neutral',
   children,
 }: {
-  tone?: 'neutral' | 'ok' | 'warn' | 'flag' | 'accent'
+  tone?: 'neutral' | 'quiet' | 'ok' | 'warn' | 'flag' | 'accent'
   children: ReactNode
 }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium',
-        tone === 'neutral' && 'bg-canvas text-ink-soft',
-        tone === 'ok' && 'bg-ok-soft text-ok',
-        tone === 'warn' && 'bg-warn-soft text-warn',
-        tone === 'flag' && 'bg-flag-soft text-flag',
-        tone === 'accent' && 'bg-accent-soft text-accent',
+        'inline-flex items-center rounded-sm px-1.5 py-1 text-micro font-semibold tracking-[.07em] uppercase',
+        tone === 'neutral' && 'bg-fill-strong text-ink-soft',
+        tone === 'quiet' && 'bg-fill text-ink-faint',
+        tone === 'ok' && 'bg-ok-soft text-good',
+        tone === 'warn' && 'bg-review-tint text-review',
+        tone === 'flag' && 'bg-block-tint text-block',
+        tone === 'accent' && 'bg-fill-strong text-ink',
       )}
     >
       {children}
@@ -131,11 +174,49 @@ export function Badge({
   )
 }
 
+/** The 3-state filter above a list. Track sunken, active pill lifted. */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T
+  options: { value: T; label: string; count?: number }[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="flex gap-0.5 rounded-lg bg-fill p-[3px]">
+      {options.map((option) => {
+        const active = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'rounded-md px-3 py-[7px] text-sm transition-colors',
+              active
+                ? 'bg-surface font-semibold text-ink shadow-pill'
+                : 'font-medium text-ink-mid hover:text-ink',
+            )}
+          >
+            {option.label}
+            {option.count !== undefined && (
+              <span className="nums font-mono"> · {option.count}</span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-line-strong bg-surface px-6 py-12 text-center">
-      <p className="text-sm font-medium text-ink">{title}</p>
-      {children && <div className="mt-1 text-sm text-ink-soft">{children}</div>}
+    <div className="rounded-xl border border-dashed border-control bg-surface px-6 py-14 text-center">
+      <p className="text-base font-semibold text-ink">{title}</p>
+      {children && <div className="mt-1.5 text-sm text-ink-faint">{children}</div>}
     </div>
   )
 }
