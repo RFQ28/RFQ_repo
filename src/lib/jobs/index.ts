@@ -5,6 +5,7 @@ import { ingestEmail } from './handlers/ingest-email'
 import { parseRfq } from './handlers/parse-rfq'
 import { renewSubscriptions } from './handlers/renew-subscriptions'
 import { matchRfq } from './handlers/match-rfq'
+import { sendNotification } from './handlers/send-notification'
 
 /**
  * The handler registry.
@@ -17,6 +18,7 @@ export const handlers: Partial<Record<JobKind, JobHandler>> = {
   parse_rfq: parseRfq,
   renew_graph_subscription: renewSubscriptions,
   match_rfq: matchRfq,
+  send_notification: sendNotification,
 }
 
 export { enqueue, runJobs, deadLetters, retryJob } from './queue'

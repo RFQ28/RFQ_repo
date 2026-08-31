@@ -5,7 +5,9 @@ import { z } from 'zod'
 import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { tenantDb } from '@/lib/supabase/tenant'
-import { extendedPrice, marginOf, priceFromMargin } from '@/lib/quote/pricing'
+import {
+  extendedPrice, marginOf, priceFromMargin, priceLine, type ApplicableRule,
+} from '@/lib/quote/pricing'
 import type { QuoteLineRow, QuoteRow } from '@/lib/db/types'
 
 /**
@@ -215,18 +217,55 @@ export async function changeQuoteLineMatch(
 
     const { data: product } = await supabase
       .from('products')
-      .select('id, sku, description, list_price, cost, uom, on_hand_qty, lead_time_days, is_stocked')
+      .select('id, sku, description, category, manufacturer, list_price, cost, uom, on_hand_qty, lead_time_days, is_stocked')
       .eq('id', productId)
       .maybeSingle()
 
     if (!product) return { error: 'That product could not be found' }
+
+    // Price the new product the way the pipeline would (6.5), not at list.
+    // Re-matching is the most common correction a rep makes, so pricing the
+    // replacement at list quietly undid the customer's discount on exactly the
+    // lines a human had just put right — and stamped `manual` on it, so the
+    // line claimed a rep had chosen that price.
+    const { data: ruleRows } = await supabase
+      .from('price_rules')
+      .select('id, scope, method, value, customer_id, product_id, category, manufacturer, contract_code, job_name, precedence, effective_from, effective_to')
+      .or(
+        quote.customer_id
+          ? `customer_id.eq.${quote.customer_id},customer_id.is.null`
+          : 'customer_id.is.null',
+      )
+
+    const rules = ((ruleRows ?? []) as unknown as ApplicableRule[]).map((rule) => ({
+      ...rule,
+      value: Number(rule.value),
+    }))
+
+    // A job-scoped rule is keyed on the job name, which lives on the RFQ.
+    const { data: rfqRow } = await supabase
+      .from('rfqs')
+      .select('job_name')
+      .eq('id', quote.rfq_id)
+      .maybeSingle()
+
+    const priced = priceLine(
+      {
+        id: product.id,
+        category: product.category,
+        manufacturer: product.manufacturer,
+        list_price: product.list_price === null ? null : Number(product.list_price),
+        cost: product.cost === null ? null : Number(product.cost),
+      },
+      rules,
+      { customerId: quote.customer_id, jobName: rfqRow?.job_name ?? null },
+    )
 
     const { data: rfqLine } = line.rfq_line_id
       ? await supabase.from('rfq_lines').select('raw_text').eq('id', line.rfq_line_id).maybeSingle()
       : { data: null }
 
     const qty = line.quoted_qty
-    const listPrice = product.list_price === null ? null : Number(product.list_price)
 
     const { error } = await supabase
       .from('quote_lines')
@@ -237,18 +276,21 @@ export async function changeQuoteLineMatch(
         match_method: 'manual',
         match_reasoning: `${session.user.full_name ?? 'A rep'} chose this product`,
         alternatives: [],
-        list_price: listPrice,
-        unit_price: listPrice,
-        price_source: 'manual',
-        price_missing: listPrice === null,
-        extended_price: extendedPrice(listPrice, qty),
-        line_margin_percent: marginOf(listPrice, product.cost === null ? null : Number(product.cost)),
+        list_price: priced.listPrice,
+        unit_price: priced.unitPrice,
+        price_rule_id: priced.priceRuleId,
+        price_source: priced.priceSource,
+        price_missing: priced.priceMissing,
+        extended_price: extendedPrice(priced.unitPrice, qty),
+        line_margin_percent: marginOf(priced.unitPrice, product.cost === null ? null : Number(product.cost)),
         quoted_uom: product.uom,
         on_hand_qty: product.on_hand_qty,
         lead_time_days: product.lead_time_days,
         stock_shortfall: qty !== null && product.on_hand_qty !== null && qty > Number(product.on_hand_qty),
-        is_flagged: false,
-        flag_reasons: [],
+        // The match is settled, but the price may not be: a product with no
+        // list price, or a cost-plus rule with no cost, still needs a person.
+        is_flagged: priced.flagReasons.length > 0,
+        flag_reasons: priced.flagReasons,
         was_corrected: true,
         accepted_by: session.user.id,
         accepted_at: new Date().toISOString(),
@@ -423,6 +465,20 @@ export async function applyQuoteMargin(
 
   const session = await requireSession()
   const supabase = await createClient()
+
+  // Every per-line action goes through loadLine(), which refuses a quote that
+  // has been sent. This one reached the lines directly and so was the one way
+  // to reprice a quote already in a customer's inbox.
+  const { data: quote } = await supabase
+    .from('quotes')
+    .select('id, status')
+    .eq('id', quoteId)
+    .maybeSingle()
+
+  if (!quote) return { error: 'That quote could not be found' }
+  if (quote.status !== 'draft' && quote.status !== 'in_review') {
+    return { error: 'This quote has already been sent' }
+  }
 
   const { data: lines, error } = await supabase
     .from('quote_lines')

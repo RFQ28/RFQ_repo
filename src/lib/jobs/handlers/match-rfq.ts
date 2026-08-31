@@ -85,6 +85,41 @@ export async function matchRfq(job: JobRow): Promise<void> {
     throw new Error(`Quote for RFQ ${rfqId} is already ${existing.status}; refusing to rewrite it`)
   }
 
+  // The status check above deliberately lets `in_review` through — but that is
+  // precisely the state a quote sits in while a rep is working it, and the
+  // rewrite below deletes every line. A job retried after a partial failure
+  // would silently destroy their corrections, their manual lines and their
+  // accepted flags.
+  //
+  // So the real question is not the status, it is whether anyone has touched
+  // the lines. If they have, the job's purpose is already met: a draft exists,
+  // and a better one than this job would produce. It stops, and says so in the
+  // audit trail rather than failing — a rep having done their work is not an
+  // error, and raising here would dead-letter into a false alarm.
+  if (existing) {
+    const { count: touched } = await db
+      .from('quote_lines')
+      .select('id', { count: 'exact', head: true })
+      .eq('quote_id', existing.id)
+      .or('was_corrected.eq.true,is_manual.eq.true,accepted_at.not.is.null')
+
+    if ((touched ?? 0) > 0) {
+      await db.log({
+        action: 'rfq.rematch_skipped',
+        entityType: 'quote',
+        entityId: existing.id,
+        rfqId,
+        quoteId: existing.id,
+        detail: {
+          reason: 'a rep has already edited this draft',
+          edited_lines: touched,
+          job_id: job.id,
+        },
+      })
+      return
+    }
+  }
+
   let quoteId = existing?.id ?? null
 
   if (!quoteId) {

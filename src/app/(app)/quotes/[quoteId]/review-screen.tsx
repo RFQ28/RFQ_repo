@@ -16,7 +16,7 @@ import {
 } from './model'
 import {
   acceptQuoteLine, addQuoteLine, applyQuoteMargin, changeQuoteLineMatch, claimRfq,
-  deleteQuoteLine, updateQuoteLine,
+  deleteQuoteLine, updateQuoteLine, type LineEditInput,
 } from './actions'
 
 export type { ReviewLine, ReviewQuote, SourceLine } from './model'
@@ -94,8 +94,16 @@ export function ReviewScreen({
     return true
   }, [])
 
-  /** Optimistic local edit plus a debounced write, so typing never stutters. */
-  const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  /**
+   * Optimistic local edit plus a debounced write, so typing never stutters.
+   *
+   * The queued patch is *merged*, not replaced. A rep who sets a quantity and
+   * tabs straight into the price sends two edits inside one 600ms window; the
+   * second used to cancel the first outright, so the quantity showed on screen
+   * and never reached the database. Only the fields actually touched are sent,
+   * so merging cannot resurrect a value the rep did not set.
+   */
+  const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; remote: LineEditInput }>())
 
   const editLine: EditHandler = useCallback(
     (lineId, patch, remote) => {
@@ -104,26 +112,49 @@ export function ReviewScreen({
       )
 
       const existing = pending.current.get(lineId)
-      if (existing) clearTimeout(existing)
+      if (existing) clearTimeout(existing.timer)
+      const merged = { ...(existing?.remote ?? {}), ...remote } as LineEditInput
 
-      pending.current.set(
-        lineId,
-        setTimeout(() => {
-          pending.current.delete(lineId)
-          void save(() => updateQuoteLine(remote))
-        }, 600),
-      )
+      const timer = setTimeout(() => {
+        pending.current.delete(lineId)
+        void save(() => updateQuoteLine(merged))
+      }, 600)
+
+      pending.current.set(lineId, { timer, remote: merged })
     },
     [save],
   )
 
-  // Flush anything still debounced when the rep leaves. Autosave that only
-  // fires on a timer loses the last edit of every session.
+  // Flush anything still debounced when the rep leaves — which is what this
+  // has always claimed to do. It used to clearTimeout the queue instead,
+  // throwing away the last edit of every session: exactly the failure the
+  // comment warned about.
   useEffect(() => {
-    const timers = pending.current
+    const queue = pending.current
     return () => {
-      for (const timer of timers.values()) clearTimeout(timer)
+      for (const { timer, remote } of queue.values()) {
+        clearTimeout(timer)
+        // Deliberately not through `save()`: the component is unmounting, so
+        // there is nobody left to read a "Saved" flash and setState would be
+        // a no-op. The write is the part that matters.
+        void updateQuoteLine(remote)
+      }
+      queue.clear()
     }
+  }, [])
+
+  // Unmount covers navigating inside the app. A closed tab or a hard reload
+  // tears the page down before an async write can land, and neither the
+  // browser nor a server action will wait — so the rep is asked instead of
+  // losing the edit silently.
+  useEffect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (pending.current.size === 0) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [])
 
   // --- what the list shows ------------------------------------------------
