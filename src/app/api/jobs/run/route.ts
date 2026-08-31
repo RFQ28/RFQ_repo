@@ -7,13 +7,22 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 /**
- * Drains a batch of due jobs. Driven by an external scheduler (Vercel Cron or
- * anything that can make an authenticated request on an interval), because the
+ * Drains a batch of due jobs. Driven by an external scheduler, because the
  * deployment target has no long-lived process to hold a worker loop.
  *
  * Overlapping invocations are safe: `claim_jobs` locks rows with SKIP LOCKED.
+ *
+ * Both verbs do the same work. POST is what a script or an external cron
+ * service would send; GET exists because Vercel Cron only issues GET, and a
+ * deployment whose scheduler gets a 405 has a queue that fills and never
+ * drains — with nothing failing loudly enough to notice, because enqueueing
+ * keeps succeeding.
+ *
+ * Vercel Cron authenticates by sending `Authorization: Bearer $CRON_SECRET`,
+ * so set CRON_SECRET to the same value as WORKER_SECRET on the deployment and
+ * one secret covers both callers.
  */
-export async function POST(request: NextRequest) {
+async function drain(request: NextRequest) {
   const { WORKER_SECRET } = serverEnv()
   if (!WORKER_SECRET) {
     return NextResponse.json({ error: 'Worker is not configured' }, { status: 503 })
@@ -34,6 +43,14 @@ export async function POST(request: NextRequest) {
     console.error('job runner failed', error)
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+export async function POST(request: NextRequest) {
+  return drain(request)
+}
+
+export async function GET(request: NextRequest) {
+  return drain(request)
 }
 
 /** Constant-time, and length-safe: comparing buffers of different sizes throws. */

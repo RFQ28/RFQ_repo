@@ -118,6 +118,41 @@ builds one tenant through the real provisioning path and a 26-line quote whose
 lines cover every state the screen can render. Development only — it reads the
 service-role key.
 
+## Deploying
+
+Vercel builds this from the repository with no configuration. What it does not
+do on its own is run the queue.
+
+**Environment variables.** Everything from `.env.example`, plus one more:
+
+```
+CRON_SECRET=<the same value as WORKER_SECRET>
+```
+
+Vercel Cron authenticates by sending `Authorization: Bearer $CRON_SECRET`, and
+the job endpoints check that bearer against `WORKER_SECRET`. Setting both to
+the same value means one secret covers the scheduler and any external caller.
+
+**`NEXT_PUBLIC_APP_URL` and `MS_REDIRECT_URI` both become the deployment's own
+domain**, and that redirect URI has to be registered on the Entra app
+(Authentication -> Add URI) character for character. Unlike the tunnel used in
+development, it never changes again.
+
+**The two cron jobs** are declared in `vercel.json`:
+
+| Path | Schedule | Why |
+|---|---|---|
+| `/api/jobs/run` | every minute | Drains the queue. This is the latency between an RFQ arriving and a rep seeing a draft. |
+| `/api/jobs/schedule` | every 6 hours | Queues the Graph subscription renewal. Graph caps a mail subscription at under three days; without this the mailbox goes quiet on day three and nothing reports it. |
+
+**Vercel's Hobby plan runs cron jobs once a day.** At that cadence an RFQ can
+sit for 24 hours before anyone sees it, and the renewal sweep is too infrequent
+to be trusted. Either use a Pro plan, or leave the crons off and drive both
+endpoints from something else on a real interval — a GitHub Actions schedule or
+any cron service, sending `Authorization: Bearer $WORKER_SECRET`. Both endpoints
+accept GET and POST, and overlapping calls are safe: `claim_jobs` locks rows
+with `SKIP LOCKED`.
+
 ## Known gaps
 
 - **Microsoft Graph needs an Entra app registration** — see
