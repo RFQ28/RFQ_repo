@@ -15,9 +15,10 @@ caller, the RPCs exposed and correctly locked, the hand-written types matching
 the live columns, and — the part that matters — two real tenants proving that
 neither can reach the other.
 
-**One migration is outstanding: `0008_fix_fail_job.sql`.** Apply it. It fixes a
-queue defect that left every failed job stuck in `running` forever, never
-retried and never reported.
+All migrations through `0008_fix_fail_job.sql` are applied. `npm run
+verify:intake` proves the last of them: a job that throws goes back to
+`queued` with its error recorded, rather than sitting in `running` forever,
+never retried and never reported.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -26,7 +27,7 @@ retried and never reported.
 | 3 | Document parsing, line extraction, matching, embeddings | **Partial** — text and spreadsheet extraction, matching and confidence built; PDF, OCR and Word not; embeddings need a provider |
 | 4 | Pricing engine, UOM conversion, stock check, substitutions | **Built** |
 | 5 | Review screen | **Built** — rebuilt against the Quote Desk redesign: severity-only colour, tabular mono numerals, lines grouped by cause, plus a keyboard-first triage mode |
-| 6 | PDF, exports, thread reply, correction capture, learning loop | **Partial** — correction capture and the learning loop are wired; PDF, exports and notifications are not |
+| 6 | PDF, exports, thread reply, correction capture, learning loop | **Partial** — correction capture and the learning loop are wired, and notifications are recorded as `pending` rows; nothing sends them yet, and PDF, exports and thread reply are not built |
 | 7 | Owner weekly summary, stale alert, won/lost, admin tooling | Not started |
 
 ## Running it
@@ -106,7 +107,16 @@ npm run lint             # eslint
 
 npm run verify           # schema, type drift, and tenant isolation
 npm run verify:intake    # webhook and worker edges (needs `npm run dev` running)
+
+node scripts/seed-demo.mjs --reset   # a demo distributor with one RFQ to look at
+node scripts/unseed-demo.mjs         # and remove it again
 ```
+
+`seed-demo.mjs` exists because an empty database makes every screen past
+`/login` redirect, so there is nothing to judge the review screen against. It
+builds one tenant through the real provisioning path and a 26-line quote whose
+lines cover every state the screen can render. Development only — it reads the
+service-role key.
 
 ## Known gaps
 
