@@ -33,6 +33,38 @@ describe('parseLine', () => {
     expect(line.description).toBe('12/2 romex')
   })
 
+  // A real twelve-line takeoff arrived numbered with spaces instead of
+  // punctuation, and every line came back with its item number as the
+  // quantity: 1, 2, 3 ... 12, while the quantity the contractor actually asked
+  // for sat unread in the description. These are those lines.
+  it('does not mistake an unpunctuated list marker for a quantity', () => {
+    const cases: [string, number, string, string][] = [
+      ['1  1/2" EMT set screw connectors - 350 ea', 350, 'ea', '1/2" EMT set screw connectors'],
+      ['3  1/2" EMT couplings - 300 ea', 300, 'ea', '1/2" EMT couplings'],
+      ['4  1/2" EMT conduit - 2000 lf', 2000, 'lf', '1/2" EMT conduit'],
+      ['5  #12 THHN black - 6 MFT', 6, 'MFT', '#12 THHN black'],
+      ['7  12/2 MC cable w/ ground - 8 coils', 8, 'coils', '12/2 MC cable w/ ground'],
+      ['9  QO120 breakers - 60 ea', 60, 'ea', 'QO120 breakers'],
+      ['11 500 MCM 2 hole lugs - 16 ea', 16, 'ea', '500 MCM 2 hole lugs'],
+    ]
+    for (const [raw, qty, uom, description] of cases) {
+      const line = parseLine(raw, 1)
+      expect(line.quantity, raw).toBe(qty)
+      expect(line.uomAsWritten?.toLowerCase(), raw).toBe(uom.toLowerCase())
+      expect(line.description, raw).toBe(description)
+    }
+  })
+
+  // The other half: a leading number that names its unit is a real quantity and
+  // must still win, or the fix above trades one wrong number for another.
+  it('still reads a leading quantity that states its unit', () => {
+    expect(parseLine('500ft of 12/2 MC cable', 1).quantity).toBe(500)
+    expect(parseLine('12 EA 1/2in EMT connectors', 1).quantity).toBe(12)
+    expect(parseLine('2,500 LF of 1/2in EMT', 1).quantity).toBe(2500)
+    // Bare leading number, nothing trailing to prefer — still a quantity.
+    expect(parseLine('25 4-square boxes', 1).quantity).toBe(25)
+  })
+
   it('keeps a line with no quantity rather than inventing one', () => {
     const line = parseLine('Square D QO breakers, assorted', 1)
     expect(line.isParsed).toBe(true)

@@ -240,17 +240,36 @@ export function parseLine(rawText: string, lineNumber: number): ExtractedLine {
   let remainder = withoutMarker
 
   const leading = withoutMarker.match(LEADING_QTY)
-  if (leading?.groups?.qty && leading.groups.rest?.trim()) {
+  const trailing = withoutMarker.match(TRAILING_QTY)
+
+  /**
+   * A bare leading number with no unit is ambiguous: "25 4-square boxes" opens
+   * with a quantity, while "3  1/2in EMT couplings - 300 ea" opens with an item
+   * number. LIST_MARKER only strips the second when it is punctuated ("3." or
+   * "3)"), and plenty of contractors align their columns with spaces instead —
+   * at which point the item number was read as the quantity and the real one
+   * was left behind in the description. Every line of a twelve-line takeoff
+   * came through as "quantity 1" through "quantity 12".
+   *
+   * The trailing quantity settles it. A line carrying one has already said what
+   * it wants; a leading bare integer in front of that is a list marker, not a
+   * second opinion. A leading number that names its unit — "500ft of 12/2",
+   * "12 EA connectors" — still wins, because that is a quantity stated outright.
+   */
+  const leadingIsBareInteger =
+    Boolean(leading?.groups?.qty) && !leading?.groups?.uom && /^\d{1,3}$/.test(leading!.groups!.qty!)
+  const preferTrailing = leadingIsBareInteger && Boolean(trailing?.groups?.qty)
+
+  if (!preferTrailing && leading?.groups?.qty && leading.groups.rest?.trim()) {
     quantity = toQuantity(leading.groups.qty)
     uom = leading.groups.uom ?? null
     remainder = leading.groups.rest.trim()
-  } else {
-    const trailing = withoutMarker.match(TRAILING_QTY)
-    if (trailing?.groups?.qty && trailing.groups.rest?.trim()) {
-      quantity = toQuantity(trailing.groups.qty)
-      uom = trailing.groups.uom ?? null
-      remainder = trailing.groups.rest.trim()
-    }
+  } else if (trailing?.groups?.qty && trailing.groups.rest?.trim()) {
+    quantity = toQuantity(trailing.groups.qty)
+    uom = trailing.groups.uom ?? null
+    // The list marker the leading pattern would have eaten is still on the
+    // front, so take it off before this becomes the description.
+    remainder = trailing.groups.rest.trim().replace(/^\d{1,3}\s+(?!\s*\/)/, '')
   }
 
   const description = remainder.replace(/^[\s:.\-–—|]+|[\s:.\-–—|]+$/g, '').trim()
